@@ -93,7 +93,6 @@ async function processImage(imagePath: string, readImage = true, generateThumb =
       jimpImage = await Jimp.read(imagePath);
       image.meta.dimensions.width = jimpImage.bitmap.width;
       image.meta.dimensions.height = jimpImage.bitmap.height;
-      image.hash = jimpImage.hash();
     }
 
     // Extract scene
@@ -129,8 +128,7 @@ async function processImage(imagePath: string, readImage = true, generateThumb =
     await collections.images.upsert(image._id, image);
     await indexImages([image]);
   } catch (error) {
-    logger.error(error);
-    logger.error(`Failed to add image '${imagePath}'.`);
+    handleError(`Failed to add image '${imagePath}'`, error);
   }
 }
 
@@ -160,7 +158,9 @@ export async function checkImageFolders(): Promise<void> {
       exclude: config.scan.excludeFiles,
       cb: async (path) => {
         loader.text = `Scanned ${++numFiles} images`;
-        if (basename(path).startsWith(".")) return;
+        if (basename(path).startsWith(".")) {
+          return;
+        }
 
         if (!(await imageWithPathExists(path))) {
           await processImage(
