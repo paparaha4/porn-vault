@@ -4,28 +4,6 @@ import { VuexModule, Module, Mutation } from "vuex-class-modules";
 class ActorModule extends VuexModule {
   current = null as IActor | null;
 
-  page = 1;
-  numResults = 0;
-  numPages = 0;
-
-  @Mutation
-  resetPagination() {
-    this.numPages = 0;
-    this.numResults = 0;
-    this.page = 1;
-  }
-
-  @Mutation
-  setPage(num: number) {
-    this.page = num;
-  }
-
-  @Mutation
-  setPagination({ numResults, numPages }: { numResults: number; numPages: number }) {
-    this.numResults = numResults;
-    this.numPages = numPages;
-  }
-
   @Mutation
   setNationality(nation: any) {
     if (this.current) this.current.nationality = nation;
@@ -57,8 +35,8 @@ class ActorModule extends VuexModule {
   }
 
   @Mutation
-  setBookmark(bool: number | null) {
-    if (this.current) this.current.bookmark = bool;
+  setBookmark(dateValue: number | null) {
+    if (this.current) this.current.bookmark = dateValue;
   }
 
   @Mutation
@@ -69,6 +47,11 @@ class ActorModule extends VuexModule {
   @Mutation
   setBornOn(date: number | null) {
     if (this.current) this.current.bornOn = date;
+  }
+  
+  @Mutation
+  setAge(age: number | null) {
+    if (this.current) this.current.age = age;
   }
 
   @Mutation

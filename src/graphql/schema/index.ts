@@ -4,6 +4,7 @@ export default gql`
   scalar Long
   scalar Object
   scalar Upload
+  scalar Json
 
   type SceneView {
     _id: String!
@@ -17,6 +18,7 @@ export default gql`
   }
 
   type Mutation {
+    attachLabels(item: String!, labels: [String!]!): Boolean!
     removeLabel(item: String!, label: String!): Boolean!
   }
 

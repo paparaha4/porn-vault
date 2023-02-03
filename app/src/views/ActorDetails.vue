@@ -95,14 +95,16 @@
                       })
                     }}
                   </div>
-
+                  <div class="py-1">
+                    <b>{{ currentActor.numScenes }}</b>
+                    {{ currentActor.numScenes === 1 ? "scene" : "scenes" }}
+                  </div>
                   <v-tooltip bottom class="py-1">
                     <template v-slot:activator="{ on }">
                       <div v-on="on" class="d-flex align-center">
-                        <b>
-                          <pre>{{ currentActor.watches.length }} </pre>
-                        </b>
-                        <span class="med-text">views</span>
+                        <div>
+                          <b>{{ currentActor.watches.length }}</b> views
+                        </div>
                       </div>
                     </template>
                     <span v-if="currentActor.watches.length">
@@ -115,6 +117,21 @@
                     </span>
                     <span v-else>You haven't watched {{ currentActor.name }} yet!</span>
                   </v-tooltip>
+                  <div class="py-1">
+                    Avg. scene rating: <b>{{ (currentActor.averageRating / 2).toFixed(1) }}</b>
+                    <v-icon small>mdi-star</v-icon>
+                  </div>
+                  <div class="py-1">
+                    PV score: <b>{{ currentActor.score.toFixed(1) }}</b>
+                    <v-tooltip right>
+                      <template v-slot:activator="{ on }">
+                        <v-icon style="font-size: 20px" class="ml-1" v-on="on"
+                          >mdi-information-outline</v-icon
+                        >
+                      </template>
+                      Computed score based on number of scenes, scene ratings and view amount
+                    </v-tooltip>
+                  </div>
                   <v-divider class="mt-2"></v-divider>
                   <div class="text-center mt-2">
                     <v-btn color="primary" text class="text-none" @click="imageDialog = true"
@@ -351,7 +368,7 @@
 
     <v-dialog scrollable v-model="labelSelectorDialog" max-width="400px">
       <v-card :loading="labelEditLoader" v-if="currentActor">
-        <v-card-title>Select actor labels</v-card-title>
+        <v-card-title>Select {{ actorSingular.toLowerCase() }} labels</v-card-title>
 
         <v-text-field
           clearable
@@ -397,7 +414,7 @@
 
     <v-dialog v-model="avatarDialog" max-width="600px">
       <v-card v-if="currentActor" :loading="avatarLoader">
-        <v-card-title>Set actor avatar</v-card-title>
+        <v-card-title>Set {{ actorSingular.toLowerCase() }} avatar</v-card-title>
         <v-card-text>
           <v-file-input
             accept=".png, .jpg, .jpeg"
@@ -433,7 +450,7 @@
 
     <v-dialog v-model="thumbnailDialog" max-width="600px">
       <v-card v-if="currentActor" :loading="thumbnailLoader">
-        <v-card-title>Set actor thumbnail</v-card-title>
+        <v-card-title>Set {{ actorSingular.toLowerCase() }} thumbnail</v-card-title>
         <v-card-text>
           <v-file-input
             accept=".png, .jpg, .jpeg"
@@ -468,7 +485,7 @@
 
     <v-dialog v-model="altThumbnailDialog" max-width="600px">
       <v-card v-if="currentActor" :loading="altThumbnailLoader">
-        <v-card-title>Set actor alt. thumbnail</v-card-title>
+        <v-card-title>Set {{ actorSingular.toLowerCase() }} alt. thumbnail</v-card-title>
         <v-card-text>
           <v-file-input
             accept=".png, .jpg, .jpeg"
@@ -503,7 +520,7 @@
 
     <v-dialog v-model="heroDialog" max-width="600px">
       <v-card v-if="currentActor" :loading="heroLoader">
-        <v-card-title>Set actor hero image for</v-card-title>
+        <v-card-title>Set {{ actorSingular.toLowerCase() }} hero image for</v-card-title>
         <v-card-text>
           <v-file-input
             accept=".png, .jpg, .jpeg"
@@ -533,7 +550,7 @@
 
     <v-dialog v-model="imageDialog" max-width="700px">
       <v-card v-if="currentActor">
-        <v-card-title>Change actor images</v-card-title>
+        <v-card-title>Change {{ actorSingular.toLowerCase() }} images</v-card-title>
         <v-card-text>
           <v-row>
             <v-col class="text-center pa-2" cols="12" sm="6">
@@ -634,7 +651,7 @@
 
 <script lang="ts">
 import { Component, Vue, Watch } from "vue-property-decorator";
-import ApolloClient, { serverBase } from "@/apollo";
+import ApolloClient from "@/apollo";
 import gql from "graphql-tag";
 import sceneFragment from "@/fragments/scene";
 import actorFragment from "@/fragments/actor";
@@ -768,9 +785,9 @@ export default class ActorDetails extends Vue {
     if (!this.currentActor.avatar) {
       return null;
     }
-    return `${serverBase}/media/image/${
-      this.currentActor.avatar._id
-    }?password=${localStorage.getItem("password")}`;
+    return `/api/media/image/${this.currentActor.avatar._id}?password=${localStorage.getItem(
+      "password"
+    )}`;
   }
 
   get heroImage() {
@@ -780,7 +797,7 @@ export default class ActorDetails extends Vue {
     if (!this.currentActor.hero) {
       return null;
     }
-    return `${serverBase}/media/image/${this.currentActor.hero._id}?password=${localStorage.getItem(
+    return `/api/media/image/${this.currentActor.hero._id}?password=${localStorage.getItem(
       "password"
     )}`;
   }
@@ -958,6 +975,8 @@ export default class ActorDetails extends Vue {
         mutation($id: String!) {
           runActorPlugins(id: $id) {
             ...ActorFragment
+            averageRating
+            score
             numScenes
             labels {
               _id
@@ -978,6 +997,7 @@ export default class ActorDetails extends Vue {
             }
             avatar {
               _id
+              color
             }
           }
         }
@@ -989,6 +1009,7 @@ export default class ActorDetails extends Vue {
     })
       .then((res) => {
         actorModule.setCurrent(res.data.runActorPlugins);
+        this.editCustomFields = res.data.runActorPlugins.customFields;
       })
       .catch((err) => {
         console.error(err);
@@ -1007,6 +1028,8 @@ export default class ActorDetails extends Vue {
         mutation($id: String!) {
           attachActorToUnmatchedScenes(id: $id) {
             ...ActorFragment
+            averageRating
+            score
             numScenes
             labels {
               _id
@@ -1092,6 +1115,14 @@ export default class ActorDetails extends Vue {
 
   get aspectRatio() {
     return contextModule.actorAspectRatio;
+  }
+
+  get actorSingular() {
+    return contextModule.actorSingular;
+  }
+
+  get actorPlural() {
+    return contextModule.actorPlural;
   }
 
   openUploadDialog() {
@@ -1606,7 +1637,9 @@ export default class ActorDetails extends Vue {
   }
 
   editLabels() {
-    if (!this.currentActor) return Promise.reject();
+    if (!this.currentActor) {
+      return Promise.reject();
+    }
 
     this.labelEditLoader = true;
     return this.updateActorLabels(this.selectedLabels.map((i) => this.allLabels[i]))
@@ -1618,26 +1651,35 @@ export default class ActorDetails extends Vue {
       });
   }
 
+  async loadLabels() {
+    const res = await ApolloClient.query({
+      query: gql`
+        {
+          getLabels {
+            _id
+            name
+            aliases
+            color
+          }
+        }
+      `,
+    });
+
+    this.allLabels = res.data.getLabels;
+  }
+
   openLabelSelector() {
-    if (!this.currentActor) return;
+    if (!this.currentActor) {
+      return;
+    }
 
     if (!this.allLabels.length) {
-      ApolloClient.query({
-        query: gql`
-          {
-            getLabels {
-              _id
-              name
-              aliases
-              color
-            }
+      this.loadLabels()
+        .then(() => {
+          if (!this.currentActor) {
+            return;
           }
-        `,
-      })
-        .then((res) => {
-          if (!this.currentActor) return;
 
-          this.allLabels = res.data.getLabels;
           this.selectedLabels = this.currentActor.labels.map((l) =>
             this.allLabels.findIndex((k) => k._id == l._id)
           );
@@ -1652,11 +1694,13 @@ export default class ActorDetails extends Vue {
   }
 
   imageLink(image: any) {
-    return `${serverBase}/media/image/${image._id}?password=${localStorage.getItem("password")}`;
+    return `/api/media/image/${image._id}?password=${localStorage.getItem("password")}`;
   }
 
   rate(rating: number) {
-    if (!this.currentActor) return;
+    if (!this.currentActor) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
@@ -1679,16 +1723,16 @@ export default class ActorDetails extends Vue {
 
   get thumbnail() {
     if (this.currentActor && this.currentActor.thumbnail) {
-      return `${serverBase}/media/image/${
-        this.currentActor.thumbnail._id
-      }?password=${localStorage.getItem("password")}`;
+      return `/api/media/image/${this.currentActor.thumbnail._id}?password=${localStorage.getItem(
+        "password"
+      )}`;
     }
-    return `${serverBase}/broken`;
+    return "/assets/broken.png";
   }
 
   get altThumbnail() {
     if (this.currentActor && this.currentActor.altThumbnail) {
-      return `${serverBase}/media/image/${
+      return `/api/media/image/${
         this.currentActor.altThumbnail._id
       }?password=${localStorage.getItem("password")}`;
     }
@@ -1758,6 +1802,8 @@ export default class ActorDetails extends Vue {
         query($id: String!) {
           getActorById(id: $id) {
             ...ActorFragment
+            averageRating
+            score
             numScenes
             labels {
               _id

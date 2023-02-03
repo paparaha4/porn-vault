@@ -1,22 +1,26 @@
 import { getConfig } from "../config";
-import { sceneCollection, studioCollection } from "../database";
-import { buildStudioExtractor } from "../extractor";
+import { collections } from "../database";
+import { buildExtractor } from "../extractor";
 import { ignoreSingleNames } from "../matching/matcher";
-import { indexScenes, searchUnmatchedItem } from "../search/scene";
+import { indexScenes } from "../search/scene";
+import { searchStudios } from "../search/studio";
 import { mapAsync } from "../utils/async";
 import { generateHash } from "../utils/hash";
-import * as logger from "../utils/logger";
+import { handleError, logger } from "../utils/logger";
 import { createObjectSet } from "../utils/misc";
 import Actor from "./actor";
+import { iterate } from "./common";
 import Label from "./label";
 import Movie from "./movie";
-import Scene from "./scene";
+import Scene, { getAverageRating } from "./scene";
+
 import ora = require("ora");
 
 export default class Studio {
   _id: string;
   name: string;
   description: string | null = null;
+  url: string | null = null;
   thumbnail: string | null = null;
   addedOn: number = +new Date();
   favorite = false;
@@ -24,16 +28,30 @@ export default class Studio {
   parent: string | null = null;
   aliases?: string[];
   customFields: Record<string, boolean | string | number | string[] | null> = {};
+  rating = 0;
+
+  static async iterate(
+    func: (scene: Studio) => void | unknown | Promise<void | unknown>,
+    extraFilter: unknown[] = []
+  ) {
+    return iterate(searchStudios, Studio.getBulk, func, "studio", extraFilter);
+  }
 
   constructor(name: string) {
     this._id = `st_${generateHash()}`;
     this.name = name;
   }
 
+  static async getAverageRating(studio: Studio): Promise<number> {
+    logger.debug(`Calculating average rating for "${studio.name}"`);
+    const scenes = await Studio.getScenes(studio);
+    return getAverageRating(scenes);
+  }
+
   static async getParents(studio: Studio): Promise<Studio[]> {
     const list: Studio[] = [];
     let current = studio;
-    while (current.parent) {
+    while (current && current.parent) {
       const parent = await Studio.getById(current.parent);
       if (parent) {
         list.push(parent);
@@ -46,26 +64,26 @@ export default class Studio {
   }
 
   static async remove(studioId: string): Promise<void> {
-    await studioCollection.remove(studioId);
+    await collections.studios.remove(studioId);
   }
 
-  static async filterStudio(studioId: string): Promise<void> {
+  static async filterParentStudio(studioId: string): Promise<void> {
     for (const studio of await Studio.getSubStudios(studioId)) {
       studio.parent = null;
-      await studioCollection.upsert(studio._id, studio);
+      await collections.studios.upsert(studio._id, studio);
     }
   }
 
   static async getById(_id: string): Promise<Studio | null> {
-    return studioCollection.get(_id);
+    return collections.studios.get(_id);
   }
 
-  static async getBulk(_ids: string[]): Promise<Studio[]> {
-    return studioCollection.getBulk(_ids);
+  static getBulk(_ids: string[]): Promise<Studio[]> {
+    return collections.studios.getBulk(_ids);
   }
 
   static async getAll(): Promise<Studio[]> {
-    return studioCollection.getAll();
+    return collections.studios.getAll();
   }
 
   static async getScenes(studio: Studio): Promise<Scene[]> {
@@ -92,7 +110,7 @@ export default class Studio {
   }
 
   static async getSubStudios(studioId: string): Promise<Studio[]> {
-    return studioCollection.query("parent-index", studioId);
+    return collections.studios.query("parent-index", studioId);
   }
 
   static async getActors(studio: Studio): Promise<Actor[]> {
@@ -105,6 +123,10 @@ export default class Studio {
 
   static async setLabels(studio: Studio, labelIds: string[]): Promise<void> {
     return Label.setForItem(studio._id, labelIds, "studio");
+  }
+
+  static async addLabels(studio: Studio, labelIds: string[]): Promise<void> {
+    return Label.addForItem(studio._id, labelIds, "studio");
   }
 
   static async getLabels(studio: Studio): Promise<Label[]> {
@@ -131,11 +153,11 @@ export default class Studio {
 
     const studioScenes = await Scene.getByStudio(studio._id);
     if (!studioScenes.length) {
-      logger.log(`No scenes to update studio "${studio.name}" labels for`);
+      logger.debug(`No scenes to update studio "${studio.name}" labels for`);
       return;
     }
 
-    logger.log(`Attaching studio "${studio.name}"'s labels to existing scenes`);
+    logger.verbose(`Attaching studio "${studio.name}"'s labels to existing scenes`);
 
     for (const scene of studioScenes) {
       await Scene.addLabels(scene, studioLabels);
@@ -146,7 +168,7 @@ export default class Studio {
     } catch (error) {
       logger.error(error);
     }
-    logger.log(`Updated labels of all studio "${studio.name}"'s scenes`);
+    logger.verbose(`Updated labels of all studio "${studio.name}"'s scenes`);
   }
 
   /**
@@ -166,27 +188,25 @@ export default class Studio {
       return;
     }
 
-    const res = await searchUnmatchedItem(studio, "studios");
-    if (!res.items.length) {
-      logger.log(`No unmatched scenes to attach "${studio.name}" to`);
-      return;
-    }
-
-    const localExtractStudios = await buildStudioExtractor([studio]);
+    const localExtractStudios = await buildExtractor(
+      () => [studio],
+      (studio) => [studio.name, ...(studio.aliases || [])],
+      true
+    );
     const matchedScenes: Scene[] = [];
 
-    logger.log(`Attaching studio "${studio.name}" labels to ${res.items.length} potential scenes`);
+    logger.verbose(`Attaching studio "${studio.name}" labels to scenes`);
     let sceneIterationCount = 0;
     const loader = ora(
-      `Attaching studio "${studio.name}" to unmatched scenes. Checking scenes: ${sceneIterationCount}/${res.items.length}`
+      `Attaching studio "${studio.name}" to unmatched scenes. Checked ${sceneIterationCount} scenes`
     ).start();
 
-    for (const scene of await Scene.getBulk(res.items)) {
+    await Scene.iterate(async (scene) => {
       sceneIterationCount++;
-      loader.text = `Attaching studio "${studio.name}" to unmatched scenes. Checking scenes: ${sceneIterationCount}/${res.items.length}`;
+      loader.text = `Attaching studio "${studio.name}" to unmatched scenes. Checked ${sceneIterationCount} scenes`;
 
       if (localExtractStudios(scene.path || scene.name)[0] === studio._id) {
-        logger.log(`Found scene "${scene.name}"`);
+        logger.debug(`Found scene "${scene.name}"`);
         matchedScenes.push(scene);
 
         if (studioLabels?.length) {
@@ -194,23 +214,22 @@ export default class Studio {
         }
 
         scene.studio = studio._id;
-        await sceneCollection.upsert(scene._id, scene);
+        await collections.scenes.upsert(scene._id, scene);
       }
-    }
+    });
 
-    loader.succeed(
-      `Attached studio "${studio.name}" to ${matchedScenes.length} scenes out of ${res.items.length} potential matches`
-    );
+    loader.succeed(`Attached studio "${studio.name}" to ${matchedScenes.length} scenes`);
 
     try {
       await indexScenes(matchedScenes);
     } catch (error) {
-      logger.error(error);
+      handleError("Error indexing scenes", error);
     }
-    logger.log(
+
+    logger.debug(
       `Added studio "${studio.name}" ${
         studioLabels?.length ? "with" : "without"
-      } labels to scenes : ${JSON.stringify(
+      } labels to scenes: ${JSON.stringify(
         matchedScenes.map((s) => s._id),
         null,
         2

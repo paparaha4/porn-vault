@@ -1,19 +1,25 @@
 import Axios from "axios";
+import https from "https";
+import Jimp from "jimp";
 
 import { IConfig } from "./config/schema";
 import Image from "./types/image";
 import Scene, { ThumbnailFile } from "./types/scene";
 import { statAsync } from "./utils/fs/async";
-import * as logger from "./utils/logger";
+import { protocol } from "./utils/http";
+import { handleError, logger } from "./utils/logger";
 
-function protocol(config: IConfig) {
-  return config.server.https.enable ? "https" : "http";
-}
+const pvApi = Axios.create({
+  // Ignore self-signed cert errors when connecting to pv api
+  httpsAgent: new https.Agent({
+    rejectUnauthorized: false,
+  }),
+});
 
 async function getQueueHead(config: IConfig): Promise<Scene> {
-  logger.log("Getting queue head...");
+  logger.verbose("Getting queue head");
   return (
-    await Axios.get<Scene>(`${protocol(config)}://localhost:${config.server.port}/queue/head`, {
+    await pvApi.get<Scene>(`${protocol(config)}://localhost:${config.server.port}/api/queue/head`, {
       params: {
         password: config.auth.password,
       },
@@ -27,7 +33,7 @@ export async function queueLoop(config: IConfig): Promise<void> {
 
     while (queueHead) {
       try {
-        logger.log(`Processing ${queueHead.path}...`);
+        logger.verbose(`Processing "${queueHead.path}"`);
         const data = {
           processed: true,
         } as Record<string, unknown>;
@@ -43,19 +49,24 @@ export async function queueLoop(config: IConfig): Promise<void> {
             image.path = preview;
             image.scene = queueHead._id;
             image.meta.size = stats.size;
+
+            const jimpImage = await Jimp.read(image.path);
+            image.meta.dimensions.width = jimpImage.bitmap.width;
+            image.meta.dimensions.height = jimpImage.bitmap.height;
+
             thumbs.push(image);
             data.preview = image._id;
           } else {
-            logger.error(`Error generating preview.`);
+            logger.error("Error generating preview.");
           }
         } else {
-          logger.message("Skipping preview generation");
+          logger.verbose("Skipping preview generation:");
         }
 
         if (config.processing.generateScreenshots) {
           let screenshots = [] as ThumbnailFile[];
           try {
-            screenshots = await Scene.generateThumbnails(queueHead);
+            screenshots = await Scene.generateScreenshots(queueHead);
           } catch (error) {
             logger.error(error);
           }
@@ -69,11 +80,12 @@ export async function queueLoop(config: IConfig): Promise<void> {
             images.push(image);
           }
         } else {
-          logger.message("Skipping screenshot generation");
+          logger.verbose("Skipping screenshot generation");
         }
 
-        await Axios.post(
-          `${protocol(config)}://localhost:${config.server.port}/queue/${queueHead._id}`,
+        logger.debug("Updating scene data & removing item from queue");
+        await pvApi.post(
+          `${protocol(config)}://localhost:${config.server.port}/api/queue/${queueHead._id}`,
           { scene: data, thumbs, images },
           {
             params: {
@@ -82,12 +94,10 @@ export async function queueLoop(config: IConfig): Promise<void> {
           }
         );
       } catch (error) {
-        const _err = error as Error;
-        logger.error("PROCESSING ERROR");
-        logger.log(_err);
-        logger.error(_err.message);
-        await Axios.delete(
-          `${protocol(config)}://localhost:${config.server.port}/queue/${queueHead._id}`,
+        handleError("Processing error", error);
+        logger.debug("Removing item from queue");
+        await pvApi.delete(
+          `${protocol(config)}://localhost:${config.server.port}/api/queue/${queueHead._id}`,
           {
             params: {
               password: config.auth.password,
@@ -98,11 +108,10 @@ export async function queueLoop(config: IConfig): Promise<void> {
       queueHead = await getQueueHead(config);
     }
 
-    logger.success("Processing done.");
+    logger.info("Processing done.");
     process.exit(0);
   } catch (error) {
-    const _err = error as Error;
-    logger.error(`Processing error: ${_err.message}`);
+    handleError("Processing error", error);
     process.exit(1);
   }
 }

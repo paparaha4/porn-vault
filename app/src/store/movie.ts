@@ -7,28 +7,6 @@ import IMovie from "@/types/movie";
 class MovieModule extends VuexModule {
   current = null as IMovie | null;
 
-  page = 1;
-  numResults = 0;
-  numPages = 0;
-
-  @Mutation
-  resetPagination() {
-    this.numPages = 0;
-    this.numResults = 0;
-    this.page = 1;
-  }
-
-  @Mutation
-  setPage(num: number) {
-    this.page = num;
-  }
-
-  @Mutation
-  setPagination({ numResults, numPages }: { numResults: number; numPages: number }) {
-    this.numResults = numResults;
-    this.numPages = numPages;
-  }
-
   @Mutation
   setName(name: string) {
     if (this.current) this.current.name = name;
@@ -55,31 +33,32 @@ class MovieModule extends VuexModule {
   }
 
   @Mutation
-  setBookmark(bool: number | null) {
-    if (this.current) this.current.bookmark = bool;
+  setBookmark(dateValue: number | null) {
+    if (this.current) this.current.bookmark = dateValue;
   }
 
   @Mutation
-  setFrontCover(id: string) {
+  setFrontCover(cover: {
+    _id: string;
+    color: string;
+    meta: { dimensions: { height: number; width: number } };
+  }) {
     if (this.current) {
-      if (!this.current.frontCover) this.current.frontCover = { _id: id, color: null };
-      else this.current.frontCover._id = id;
+      this.current.frontCover = cover;
     }
   }
 
   @Mutation
-  setBackCover(id: string) {
+  setBackCover(cover: { _id: string; meta: { dimensions: { height: number; width: number } } }) {
     if (this.current) {
-      if (!this.current.backCover) this.current.backCover = { _id: id };
-      else this.current.backCover._id = id;
+      this.current.backCover = cover;
     }
   }
 
   @Mutation
-  setSpineCover(id: string) {
+  setSpineCover(cover: { _id: string; meta: { dimensions: { height: number; width: number } } }) {
     if (this.current) {
-      if (!this.current.spineCover) this.current.spineCover = { _id: id };
-      else this.current.spineCover._id = id;
+      this.current.spineCover = cover;
     }
   }
 

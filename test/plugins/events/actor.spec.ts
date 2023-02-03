@@ -12,7 +12,8 @@ import Image from "../../../src/types/image";
 import Label from "../../../src/types/label";
 import { startTestServer, stopTestServer } from "../../testServer";
 import { CONFIG_FIXTURES } from "../initPluginFixtures";
-import { actorCollection, imageCollection, labelCollection } from "./../../../src/database";
+import { collections } from "./../../../src/database";
+import { resolvePlugin } from "../../../src/plugins";
 
 describe("plugins", () => {
   describe("events", () => {
@@ -24,11 +25,12 @@ describe("plugins", () => {
       CONFIG_FIXTURES.forEach((configFixture) => {
         ["actorCreated", "actorCustom"].forEach((ev: string) => {
           const event: "actorCreated" | "actorCustom" = ev as any;
-          const pluginNames = configFixture.config.plugins.events[event];
-          expect(pluginNames).to.have.lengthOf(1); // This test should only run 1 plugin for the given event
+          const plugins = configFixture.config.plugins.events[event];
+          expect(plugins).to.have.lengthOf(1); // This test should only run 1 plugin for the given event
+          const [pluginName] = resolvePlugin(plugins[0]);
 
           const actorPluginFixture = require(path.resolve(
-            configFixture.config.plugins.register[pluginNames[0]].path
+            configFixture.config.plugins.register[pluginName].path
           ));
 
           it(`config ${configFixture.name}: event '${event}': runs fixture plugin, changes properties`, async function () {
@@ -38,7 +40,7 @@ describe("plugins", () => {
 
             const existingImage = new Image("existing image");
             existingImage.path = path.resolve("test/fixtures/files/image001.jpg");
-            await imageCollection.upsert(existingImage._id, existingImage);
+            await collections.images.upsert(existingImage._id, existingImage);
             await indexImages([existingImage]);
             expect(await Image.getActors(existingImage)).to.have.lengthOf(0);
 
@@ -58,7 +60,8 @@ describe("plugins", () => {
             expect(actor.nationality).to.not.equal(actorPluginFixture.result.nationality);
             expect(actor.thumbnail).to.be.null;
 
-            actor = await onActorCreate(actor, [], event);
+            const result = await onActorCreate(actor, [], event);
+            actor = result.actor;
 
             expect(actor.name).to.equal(actorPluginFixture.result.name);
             expect(actor.bornOn).to.equal(actorPluginFixture.result.bornOn);
@@ -69,7 +72,7 @@ describe("plugins", () => {
             expect(actor.nationality).to.equal(actorPluginFixture.result.nationality);
             expect(actor.thumbnail).to.be.a("string");
 
-            actorCollection.upsert(actor._id, actor);
+            collections.actors.upsert(actor._id, actor);
             await indexActors([actor]);
 
             const existingImageActors = await Image.getActors(existingImage);
@@ -83,7 +86,7 @@ describe("plugins", () => {
 
               // Use the same name as the plugin
               const actorLabel = new Label("existing actor label");
-              await labelCollection.upsert(actorLabel._id, actorLabel);
+              await collections.labels.upsert(actorLabel._id, actorLabel);
 
               return { actorLabel };
             }
@@ -102,7 +105,12 @@ describe("plugins", () => {
               expect(actor.thumbnail).to.be.null;
 
               const actorLabels: string[] = [];
-              actor = await onActorCreate(actor, actorLabels, event);
+
+              const result = await onActorCreate(actor, actorLabels, event);
+              actor = result.actor;
+
+              await result.commit();
+
               expect(actor.thumbnail).to.be.a("string");
 
               // Plugin created 1 thumbnail 2 extra
@@ -135,7 +143,12 @@ describe("plugins", () => {
               expect(actor.thumbnail).to.be.null;
 
               const actorLabels: string[] = [];
-              actor = await onActorCreate(actor, actorLabels, event);
+
+              const result = await onActorCreate(actor, actorLabels, event);
+              actor = result.actor;
+
+              await result.commit();
+
               expect(actor.thumbnail).to.be.a("string");
 
               // Plugin created 1 thumbnail 2 extra

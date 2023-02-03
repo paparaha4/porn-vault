@@ -1,32 +1,13 @@
 import { platform } from "os";
 
+import { DEFAULT_WORD_MATCHER } from "../matching/wordMatcher";
 import {
   ApplyActorLabelsEnum,
   ApplyStudioLabelsEnum,
+  H264Preset,
   IConfig,
-  StringMatcherType,
-  WordMatcherType,
+  WebmDeadline,
 } from "./schema";
-
-export const DEFAULT_STRING_MATCHER: StringMatcherType = {
-  type: "legacy",
-  options: { ignoreSingleNames: true },
-};
-
-export const DEFAULT_WORD_MATCHER: WordMatcherType = {
-  type: "word",
-  options: {
-    ignoreSingleNames: false,
-    ignoreDiacritics: true,
-    enableWordGroups: true,
-    wordSeparatorFallback: true,
-    camelCaseWordGroups: true,
-    overlappingMatchPreference: "longest",
-    groupSeparators: ["[\\s',()[\\]{}*\\.]"],
-    wordSeparators: ["[-_]"],
-    filepathSeparators: ["[/\\\\&]"],
-  },
-};
 
 function isWindows(): boolean {
   return platform() === "win32";
@@ -56,7 +37,21 @@ const defaultConfig: IConfig = {
     videos: [],
   },
   log: {
-    maxSize: 2500,
+    level: "info",
+    maxSize: "20m",
+    maxFiles: "5",
+    writeFile: [
+      {
+        level: "error",
+        prefix: "errors-",
+        silent: false,
+      },
+      {
+        level: "silly",
+        prefix: "full-",
+        silent: true,
+      },
+    ],
   },
   matching: {
     applyActorLabels: [
@@ -80,6 +75,9 @@ const defaultConfig: IConfig = {
     extractSceneMoviesFromFilepath: true,
     extractSceneStudiosFromFilepath: true,
     matcher: DEFAULT_WORD_MATCHER,
+    matchCreatedActors: true,
+    matchCreatedStudios: true,
+    matchCreatedLabels: true,
   },
   persistence: {
     backup: {
@@ -107,6 +105,7 @@ const defaultConfig: IConfig = {
       studioCustom: [],
     },
     register: {},
+    markerDeduplicationThreshold: 5,
   },
   processing: {
     doProcessing: true,
@@ -129,6 +128,19 @@ const defaultConfig: IConfig = {
       key: "",
     },
     port: 3000,
+  },
+  transcode: {
+    hwaDriver: null,
+    vaapiDevice: null,
+    h264: {
+      preset: H264Preset.enum.veryfast,
+      crf: 23,
+    },
+    webm: {
+      deadline: WebmDeadline.enum.realtime,
+      cpuUsed: 5,
+      crf: 31,
+    },
   },
 };
 

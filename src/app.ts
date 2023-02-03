@@ -5,20 +5,20 @@ import LRU from "lru-cache";
 import moment from "moment";
 import * as path from "path";
 
-import BROKEN_IMAGE from "./data/broken_image";
-import { sceneCollection } from "./database";
+import { collections } from "./database";
 import { mountApolloServer } from "./middlewares/apollo";
 import cors from "./middlewares/cors";
 import { checkPassword, passwordHandler } from "./middlewares/password";
 import queueRouter from "./queue_router";
+import configRouter from "./routers/config";
 import mediaRouter from "./routers/media";
 import scanRouter from "./routers/scan";
+import systemRouter from "./routers/system";
 import { applyPublic } from "./static";
 import Actor from "./types/actor";
-import Scene, { runFFprobe } from "./types/scene";
+import Scene from "./types/scene";
 import SceneView from "./types/watch";
-import { httpLog } from "./utils/logger";
-import * as logger from "./utils/logger";
+import { handleError, httpLog, logger } from "./utils/logger";
 import { createObjectSet } from "./utils/misc";
 import { renderHandlebars } from "./utils/render";
 import VERSION from "./version";
@@ -66,9 +66,9 @@ export class Vault {
 }
 
 export function createVault(): Vault {
-  const cache = new LRU({
-    max: 500,
-    maxAge: 3600 * 1000,
+  const statCache = new LRU({
+    max: 100,
+    maxAge: 1000 * 60 /* 1 minute */,
   });
 
   const app = express();
@@ -78,76 +78,7 @@ export function createVault(): Vault {
 
   app.use(httpLog);
 
-  app.get("/", async (req, res, next) => {
-    if (vault.serverReady) {
-      next();
-    } else {
-      res.status(404).send(
-        await renderHandlebars("./views/setup.html", {
-          message: vault.setupMessage,
-        })
-      );
-    }
-  });
-
-  app.get("/version", (req, res) => {
-    res.json({
-      result: VERSION,
-    });
-  });
-
-  app.get("/label-usage/scenes", async (req, res) => {
-    const cached = cache.get("scene-label-usage");
-    if (cached) {
-      logger.log("Using cached scene label usage");
-      return res.json(cached);
-    }
-    const scores = await Scene.getLabelUsage();
-    if (scores.length) {
-      logger.log("Caching scene label usage");
-      cache.set("scene-label-usage", scores);
-    }
-    res.json(scores);
-  });
-
-  app.get("/label-usage/actors", async (req, res) => {
-    const cached = cache.get("actor-label-usage");
-    if (cached) {
-      logger.log("Using cached actor label usage");
-      return res.json(cached);
-    }
-    const scores = await Actor.getLabelUsage();
-    if (scores.length) {
-      logger.log("Caching actor label usage");
-      cache.set("actor-label-usage", scores);
-    }
-    res.json(scores);
-  });
-
-  app.get("/setup", (req, res) => {
-    res.json({
-      serverReady: vault.serverReady,
-      setupMessage: vault.setupMessage,
-    });
-  });
-
-  app.get("/broken", (_, res) => {
-    const b64 = BROKEN_IMAGE;
-
-    const img = Buffer.from(b64, "base64");
-
-    res.writeHead(200, {
-      "Content-Type": "image/png",
-      "Content-Length": img.length,
-    });
-    res.end(img);
-  });
-
   applyPublic(app);
-
-  app.get("/password", checkPassword);
-  app.use(passwordHandler);
-
   app.get("/", async (req, res) => {
     const file = path.join(process.cwd(), "app/dist/index.html");
 
@@ -162,22 +93,69 @@ export function createVault(): Vault {
     }
   });
 
-  app.use("/media", mediaRouter);
-
-  app.get("/log", (req, res) => {
-    res.json(logger.getLog());
+  // Allow access to these apis before "serverReady"
+  app.get("/api/password", checkPassword);
+  app.use(passwordHandler);
+  app.use("/api/system", systemRouter);
+  app.use("/api/config", configRouter);
+  app.get("/api/version", (req, res) => {
+    res.json({
+      result: VERSION,
+    });
   });
+
+  app.use("/api", (req, res, next) => {
+    if (vault.serverReady) {
+      next();
+    } else {
+      res.redirect("/");
+    }
+  });
+
+  app.get("/api/label-usage/scenes", async (req, res) => {
+    const cached = statCache.get("scene-label-usage");
+    if (cached) {
+      logger.debug("Using cached scene label usage");
+      return res.json(cached);
+    }
+    const scores = await Scene.getLabelUsage();
+    if (scores.length) {
+      logger.debug("Caching scene label usage");
+      statCache.set("scene-label-usage", scores);
+    }
+    res.json(scores);
+  });
+
+  app.get("/api/label-usage/actors", async (req, res) => {
+    const cached = statCache.get("actor-label-usage");
+    if (cached) {
+      logger.debug("Using cached actor label usage");
+      return res.json(cached);
+    }
+    const scores = await Actor.getLabelUsage();
+    if (scores.length) {
+      logger.debug("Caching actor label usage");
+      statCache.set("actor-label-usage", scores);
+    }
+    res.json(scores);
+  });
+
+  app.use("/api/media", mediaRouter);
+
+  /* app.get("/log", (req, res) => {
+    res.json(getLog());
+  }); */
 
   mountApolloServer(app);
 
-  app.use("/queue", queueRouter);
+  app.use("/api/queue", queueRouter);
 
-  app.get("/remaining-time", async (_req, res) => {
+  app.get("/api/remaining-time", async (_req, res) => {
     const views = createObjectSet(await SceneView.getAll(), "scene");
     if (!views.length) return res.json(null);
 
     const now = Date.now();
-    const numScenes = await sceneCollection.count();
+    const numScenes = await collections.scenes.count();
     const viewedPercent = views.length / numScenes;
     const currentInterval = now - views[0].date;
     const fullTime = currentInterval / viewedPercent;
@@ -201,24 +179,13 @@ export function createVault(): Vault {
     });
   });
 
-  app.use("/scan", scanRouter);
-
-  app.get("/ffprobe/:scene", async (req, res) => {
-    const scene = await Scene.getById(req.params.scene);
-
-    if (!scene || !scene.path) {
-      return res.sendStatus(404);
-    }
-
-    res.json({
-      result: await runFFprobe(scene.path),
-    });
-  });
+  app.use("/api/scan", scanRouter);
 
   // Error handler
   app.use(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     (err: number, req: express.Request, res: express.Response, next: express.NextFunction) => {
+      handleError(`Unknown error in middleware from url ${req.path}`, err);
       if (typeof err === "number") return res.sendStatus(err);
       return res.sendStatus(500);
     }

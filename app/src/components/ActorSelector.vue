@@ -12,14 +12,15 @@
       :search-input.sync="searchQuery"
       cache-items
       hide-no-data
-      hint="Search for actors by typing something"
-      :label="multiple ? 'Select actors' : 'Select actor'"
+      @hint="'Search for ' + actorPlural.toLowerCase() + ' by typing something'"
+      :label="multiple ? 'Select ' + actorSingular.toLowerCase() : 'Select ' + actorPlural.toLowerCase()"
       :multiple="multiple"
       item-text="name"
       item-value="_id"
       clearable
       @change="onInnerValueChange"
       hide-details="auto"
+      :disabled="disabled"
     >
       <template v-slot:item="{ item }">
         <template>
@@ -28,6 +29,9 @@
           </v-list-item-avatar>
           <v-list-item-content>
             <v-list-item-title v-text="item.name"></v-list-item-title>
+            <v-list-item-subtitle v-if="item.aliases.length">
+              a.k.a. {{ item.aliases.join(", ") }}
+            </v-list-item-subtitle>
           </v-list-item-content>
         </template>
       </template>
@@ -37,15 +41,17 @@
 
 <script lang="ts">
 import { Component, Vue, Prop, Watch } from "vue-property-decorator";
-import ApolloClient, { serverBase } from "../apollo";
+import ApolloClient from "../apollo";
 import gql from "graphql-tag";
 import actorFragment from "../fragments/actor";
 import IActor from "../types/actor";
+import { contextModule } from "@/store/context";
 
 @Component
 export default class ActorSelector extends Vue {
   @Prop() value!: IActor[];
   @Prop({ default: true }) multiple!: boolean;
+  @Prop({ default: false}) disabled!: boolean;
 
   innerValue = JSON.parse(JSON.stringify(this.value)) || [];
 
@@ -67,15 +73,19 @@ export default class ActorSelector extends Vue {
     );
   }
 
+  get actorSingular() {
+    return contextModule.actorSingular;
+  }
+
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
   thumbnail(actor: IActor) {
     if (actor.avatar)
-      return `${serverBase}/media/image/${actor.avatar._id}?password=${localStorage.getItem(
-        "password"
-      )}`;
+      return `/api/media/image/${actor.avatar._id}?password=${localStorage.getItem("password")}`;
     if (actor.thumbnail)
-      return `${serverBase}/media/image/${actor.thumbnail._id}?password=${localStorage.getItem(
-        "password"
-      )}`;
+      return `/api/media/image/${actor.thumbnail._id}?password=${localStorage.getItem("password")}`;
     return "";
   }
 
@@ -127,5 +137,4 @@ export default class ActorSelector extends Vue {
 }
 </script>
 
-<style lang="scss" scoped>
-</style>
+<style lang="scss" scoped></style>

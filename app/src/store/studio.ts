@@ -4,38 +4,6 @@ import { VuexModule, Module, Mutation } from "vuex-class-modules";
 class StudioModule extends VuexModule {
   current = null as any | null;
 
-  page = 1;
-  numResults = 0;
-  numPages = 0;
-
-  @Mutation
-  resetPagination() {
-    // this.items = [];
-    this.numPages = 0;
-    this.numResults = 0;
-    this.page = 1;
-  }
-
-  @Mutation
-  setPage(num: number) {
-    this.page = num;
-  }
-
-  @Mutation
-  setPagination({
-    // items,
-    numResults,
-    numPages,
-  }: {
-    // items: any[];
-    numResults: number;
-    numPages: number;
-  }) {
-    // this.items = items;
-    this.numResults = numResults;
-    this.numPages = numPages;
-  }
-
   @Mutation
   setName(name: string) {
     if (this.current) this.current.name = name;
@@ -52,6 +20,11 @@ class StudioModule extends VuexModule {
   }
 
   @Mutation
+  setUrl(url: string) {
+    if (this.current) this.current.url = url;
+  }
+
+  @Mutation
   setCurrent(current: any) {
     this.current = current;
   }
@@ -62,8 +35,8 @@ class StudioModule extends VuexModule {
   }
 
   @Mutation
-  setBookmark(bool: number | null) {
-    if (this.current) this.current.bookmark = bool;
+  setBookmark(dateValue: number | null) {
+    if (this.current) this.current.bookmark = dateValue;
   }
 
   @Mutation

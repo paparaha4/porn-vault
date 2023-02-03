@@ -1,19 +1,51 @@
 import { getConfig } from "../../config";
 import { ApplyStudioLabelsEnum } from "../../config/schema";
-import { imageCollection, labelCollection, studioCollection } from "../../database";
+import { collections } from "../../database";
 import { buildFieldExtractor, buildLabelExtractor, extractStudios } from "../../extractor";
 import { runPluginsSerial } from "../../plugins";
 import { indexImages, removeImage } from "../../search/image";
 import { indexStudios } from "../../search/studio";
+import ActorReference from "../../types/actor_reference";
 import Image from "../../types/image";
 import Label from "../../types/label";
 import LabelledItem from "../../types/labelled_item";
 import Studio from "../../types/studio";
-import * as logger from "../../utils/logger";
+import { handleError, logger } from "../../utils/logger";
 import { filterInvalidAliases } from "../../utils/misc";
 import { createImage, createLocalImage } from "../context";
 
 export const MAX_STUDIO_RECURSIVE_CALLS = 4;
+
+function injectServerFunctions(studio: Studio, createdImages: Image[]) {
+  let labels: Label[], rating: number, parents: Studio[], subStudios: Studio[];
+  return {
+    $getLabels: async () => (labels ??= await Studio.getLabels(studio)),
+    $getAverageRating: async () => (rating ??= await Studio.getAverageRating(studio)),
+    $getParents: async () => (parents ??= await Studio.getParents(studio)),
+    $getSubStudios: async () => (subStudios ??= await Studio.getSubStudios(studio._id)),
+    $createLocalImage: async (path: string, name: string, thumbnail?: boolean) => {
+      const img = await createLocalImage(path, name, thumbnail);
+      img.studio = studio._id;
+      await collections.images.upsert(img._id, img);
+
+      if (!thumbnail) {
+        createdImages.push(img);
+      }
+
+      return img._id;
+    },
+    $createImage: async (url: string, name: string, thumbnail?: boolean) => {
+      const img = await createImage(url, name, thumbnail);
+      img.studio = studio._id;
+      logger.debug(`Created image ${img._id}`);
+      await collections.images.upsert(img._id, img);
+      if (!thumbnail) {
+        createdImages.push(img);
+      }
+      return img._id;
+    },
+  };
+}
 
 // This function has side effects
 export async function onStudioCreate(
@@ -29,27 +61,7 @@ export async function onStudioCreate(
   const pluginResult = await runPluginsSerial(config, event, {
     studio: JSON.parse(JSON.stringify(studio)) as Studio,
     studioName: studio.name,
-    $createLocalImage: async (path: string, name: string, thumbnail?: boolean) => {
-      const img = await createLocalImage(path, name, thumbnail);
-      img.studio = studio._id;
-      await imageCollection.upsert(img._id, img);
-
-      if (!thumbnail) {
-        createdImages.push(img);
-      }
-
-      return img._id;
-    },
-    $createImage: async (url: string, name: string, thumbnail?: boolean) => {
-      const img = await createImage(url, name, thumbnail);
-      img.studio = studio._id;
-      logger.log(`Created image ${img._id}`);
-      await imageCollection.upsert(img._id, img);
-      if (!thumbnail) {
-        createdImages.push(img);
-      }
-      return img._id;
-    },
+    ...injectServerFunctions(studio, createdImages),
   });
 
   if (
@@ -96,13 +108,13 @@ export async function onStudioCreate(
       const extractedIds = localExtractLabels(labelName);
       if (extractedIds.length) {
         labelIds.push(...extractedIds);
-        logger.log(`Found ${extractedIds.length} labels for ${<string>labelName}:`);
-        logger.log(extractedIds);
+        logger.verbose(`Found ${extractedIds.length} labels for ${<string>labelName}:`);
+        logger.debug(extractedIds);
       } else if (config.plugins.createMissingLabels) {
         const label = new Label(labelName);
         labelIds.push(label._id);
-        await labelCollection.upsert(label._id, label);
-        logger.log(`Created label ${label.name}`);
+        await collections.labels.upsert(label._id, label);
+        logger.debug(`Created label ${label.name}`);
       }
     }
     studioLabels.push(...labelIds);
@@ -146,9 +158,7 @@ export async function onStudioCreate(
             : []
         );
       } catch (error) {
-        const _err = error as Error;
-        logger.log(_err);
-        logger.error(_err.message);
+        handleError(`findUnmatchedScenes error`, error);
       }
 
       if (studio.name === createdStudio.name) {
@@ -162,12 +172,13 @@ export async function onStudioCreate(
           await Image.remove(thumbnailImage);
           await removeImage(thumbnailImage._id);
           await LabelledItem.removeByItem(thumbnailImage._id);
+          await ActorReference.removeByItem(thumbnailImage._id);
         }
       } else {
-        await studioCollection.upsert(createdStudio._id, createdStudio);
-        logger.log(`Created studio ${createdStudio.name}`);
+        await collections.studios.upsert(createdStudio._id, createdStudio);
+        logger.debug(`Created studio ${createdStudio.name}`);
         studio.parent = createdStudio._id;
-        logger.log(`Attached ${studio.name} to studio ${createdStudio.name}`);
+        logger.debug(`Attached ${studio.name} to studio ${createdStudio.name}`);
         await indexStudios([createdStudio]);
       }
     }
@@ -195,8 +206,8 @@ export async function onStudioCreate(
     if (shouldApplyStudioLabels) {
       await Image.setLabels(image, studioLabels);
     }
-    await indexImages([image]);
   }
+  await indexImages(createdImages);
 
   return studio;
 }

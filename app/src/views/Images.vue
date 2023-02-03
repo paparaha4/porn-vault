@@ -3,33 +3,56 @@
     <BindFavicon />
     <BindTitle value="Images" />
     <v-banner app sticky class="mb-2">
-      {{ selectedImages.length }} images selected
-      <template v-slot:actions>
-        <v-btn v-if="selectedImages.length" text @click="selectedImages = []" class="text-none"
-          >Deselect</v-btn
-        >
+      <div class="d-flex align-center">
         <v-btn
-          v-else-if="!selectedImages.length"
-          text
+          v-if="!selectedImages.length"
+          icon
           @click="selectedImages = images.map((im) => im._id)"
-          class="text-none"
-          >Select all</v-btn
         >
+          <v-icon>mdi-checkbox-blank-circle-outline</v-icon>
+        </v-btn>
+
+        <v-btn v-else icon @click="selectedImages = []">
+          <v-icon>mdi-checkbox-marked-circle</v-icon>
+        </v-btn>
+
+        <div class="title ml-2">
+          {{ selectedImages.length }}
+        </div>
+      </div>
+
+      <template v-slot:actions>
+        <v-btn @click="addLabelsDialog = true" icon v-if="selectedImages.length">
+          <v-icon>mdi-label</v-icon>
+        </v-btn>
+
+        <v-btn @click="subtractLabelsDialog = true" icon v-if="selectedImages.length">
+          <v-icon>mdi-label-off</v-icon>
+        </v-btn>
+
+        <v-btn @click="addActorsDialog = true" icon v-if="selectedImages.length">
+          <v-tooltip bottom>
+            <template v-slot:activator="{ on, attrs }">
+              <v-icon v-bind="attrs" v-on="on">mdi-account-plus</v-icon>
+            </template>
+            <span>Add {{ (actorPlural || "").toLowerCase() }} to selected images</span>
+          </v-tooltip>
+        </v-btn>
+
         <v-btn
           v-if="selectedImages.length"
           @click="deleteSelectedImagesDialog = true"
-          text
-          class="text-none"
+          icon
           color="error"
-          >Delete</v-btn
-        >
+          ><v-icon>mdi-delete-forever</v-icon>
+        </v-btn>
       </template>
     </v-banner>
 
     <v-navigation-drawer v-if="showSidenav" style="z-index: 14" v-model="drawer" clipped app>
       <v-container>
         <v-btn
-          :disabled="refreshed"
+          :disabled="searchStateManager.refreshed"
           class="text-none mb-2"
           block
           color="primary"
@@ -46,45 +69,63 @@
           hide-details
           clearable
           color="primary"
-          v-model="query"
+          :value="searchState.query"
+          @input="searchStateManager.onValueChanged('query', $event)"
           label="Search query"
           class="mb-2"
         ></v-text-field>
 
         <div class="d-flex align-center">
           <v-btn
-            :color="favoritesOnly ? 'red' : undefined"
+            :color="searchState.favoritesOnly ? 'red' : undefined"
             icon
-            @click="favoritesOnly = !favoritesOnly"
+            @click="searchStateManager.onValueChanged('favoritesOnly', !searchState.favoritesOnly)"
           >
-            <v-icon>{{ favoritesOnly ? "mdi-heart" : "mdi-heart-outline" }}</v-icon>
+            <v-icon>{{ searchState.favoritesOnly ? "mdi-heart" : "mdi-heart-outline" }}</v-icon>
           </v-btn>
 
           <v-btn
-            :color="bookmarksOnly ? 'primary' : undefined"
+            :color="searchState.bookmarksOnly ? 'primary' : undefined"
             icon
-            @click="bookmarksOnly = !bookmarksOnly"
+            @click="searchStateManager.onValueChanged('bookmarksOnly', !searchState.bookmarksOnly)"
           >
-            <v-icon>{{ bookmarksOnly ? "mdi-bookmark" : "mdi-bookmark-outline" }}</v-icon>
+            <v-icon>{{
+              searchState.bookmarksOnly ? "mdi-bookmark" : "mdi-bookmark-outline"
+            }}</v-icon>
           </v-btn>
 
           <v-spacer></v-spacer>
 
-          <Rating @input="ratingFilter = $event" :value="ratingFilter" />
+          <Rating
+            @input="searchStateManager.onValueChanged('ratingFilter', $event)"
+            :value="searchState.ratingFilter"
+          />
         </div>
 
         <Divider icon="mdi-label">Labels</Divider>
 
         <LabelFilter
-          @change="onSelectedLabelsChange"
+          @input="searchStateManager.onValueChanged('selectedLabels', $event)"
           class="mt-0"
-          v-model="selectedLabels"
+          :value="searchState.selectedLabels"
           :items="allLabels"
         />
 
-        <Divider icon="mdi-account">Actors</Divider>
+        <Divider icon="mdi-account">{{ actorPlural }}</Divider>
 
-        <ActorSelector v-model="selectedActors" :multiple="true" />
+        <ActorSelector
+          :value="searchState.selectedActors"
+          @input="searchStateManager.onValueChanged('selectedActors', $event)"
+          :multiple="true"
+          :disabled="searchState.showEmptyField === 'actors'"
+        />
+
+        <v-checkbox
+          v-model="searchState.showEmptyField"
+          value="actors"
+          @change="searchStateManager.onValueChanged('showEmptyField', $event)"
+          :label="`Filter by images with no tagged ${(actorPlural || '').toLowerCase()}`"
+        ></v-checkbox>
 
         <Divider icon="mdi-sort">Sort</Divider>
 
@@ -96,7 +137,8 @@
           color="primary"
           item-text="text"
           item-value="value"
-          v-model="sortBy"
+          :value="searchState.sortBy"
+          @change="searchStateManager.onValueChanged('sortBy', $event)"
           placeholder="Sort by..."
           :items="sortByItems"
           class="mt-0 pt-0 mb-2"
@@ -105,12 +147,13 @@
           solo
           flat
           single-line
-          :disabled="sortBy == 'relevance' || sortBy == '$shuffle'"
+          :disabled="searchState.sortBy === 'relevance' || searchState.sortBy === '$shuffle'"
           hide-details
           color="primary"
           item-text="text"
           item-value="value"
-          v-model="sortDir"
+          :value="searchState.sortDir"
+          @change="searchStateManager.onValueChanged('sortDir', $event)"
           placeholder="Sort direction"
           :items="sortDirItems"
         ></v-select>
@@ -119,7 +162,7 @@
 
     <div class="text-center" v-if="fetchError">
       <div>There was an error</div>
-      <v-btn class="mt-2" @click="loadPage(page)">Try again</v-btn>
+      <v-btn class="mt-2" @click="loadPage">Try again</v-btn>
     </div>
     <div v-else>
       <div class="mb-2 d-flex align-center">
@@ -137,7 +180,7 @@
         </v-tooltip>
         <v-tooltip bottom>
           <template v-slot:activator="{ on }">
-            <v-btn v-on="on" :disabled="sortBy != '$shuffle'" @click="rerollSeed" icon>
+            <v-btn v-on="on" :disabled="searchState.sortBy != '$shuffle'" @click="rerollSeed" icon>
               <v-icon>mdi-dice-3-outline</v-icon>
             </v-btn>
           </template>
@@ -147,9 +190,9 @@
         <div>
           <v-pagination
             v-if="!fetchLoader && $vuetify.breakpoint.mdAndUp"
-            @input="loadPage"
-            v-model="page"
-            :total-visible="7"
+            :value="searchState.page"
+            @input="onPageChange"
+            :total-visible="9"
             :disabled="fetchLoader"
             :length="numPages"
           ></v-pagination>
@@ -195,12 +238,35 @@
     </div>
     <div class="mt-3" v-if="numResults && numPages > 1">
       <v-pagination
-        @input="loadPage"
-        v-model="page"
-        :total-visible="7"
+        :value="searchState.page"
+        @input="onPageChange"
+        :total-visible="9"
         :disabled="fetchLoader"
         :length="numPages"
       ></v-pagination>
+      <div class="text-center mt-3">
+        <v-text-field
+          @keydown.enter="onPageChange(jumpPage)"
+          :disabled="fetchLoader"
+          solo
+          flat
+          color="primary"
+          v-model.number="jumpPage"
+          placeholder="Page #"
+          class="d-inline-block mr-2"
+          style="width: 60px"
+          hide-details
+        >
+        </v-text-field>
+        <v-btn
+          :disabled="fetchLoader"
+          color="primary"
+          class="text-none"
+          text
+          @click="onPageChange(jumpPage)"
+          >Load</v-btn
+        >
+      </div>
     </div>
 
     <v-dialog :persistent="isUploading" scrollable v-model="uploadDialog" max-width="400px">
@@ -214,6 +280,102 @@
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn class="text-none" color="error" text @click="deleteSelection">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :persistent="addLoader" scrollable v-model="addLabelsDialog" max-width="400px">
+      <v-card :loading="addLoader">
+        <v-card-title
+          >Add {{ addLabelsIndices.length }}
+          {{ addLabelsIndices.length === 1 ? "label" : "labels" }}</v-card-title
+        >
+
+        <v-text-field
+          clearable
+          color="primary"
+          hide-details
+          class="px-5 mb-2"
+          label="Find labels..."
+          v-model="addLabelsSearchQuery"
+        />
+
+        <v-card-text style="max-height: 400px">
+          <LabelSelector
+            :searchQuery="addLabelsSearchQuery"
+            :items="allLabels"
+            v-model="addLabelsIndices"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn @click="addLabelsIndices = []" text class="text-none">Clear</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn :loading="addLoader" class="text-none" color="primary" text @click="addLabels"
+            >Commit</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog
+      :persistent="subtractLoader"
+      scrollable
+      v-model="subtractLabelsDialog"
+      max-width="400px"
+    >
+      <v-card :loading="subtractLoader">
+        <v-card-title
+          >Subtract {{ subtractLabelsIndices.length }}
+          {{ subtractLabelsIndices.length === 1 ? "label" : "labels" }}</v-card-title
+        >
+
+        <v-text-field
+          clearable
+          color="primary"
+          hide-details
+          class="px-5 mb-2"
+          label="Find labels..."
+          v-model="subtractLabelsSearchQuery"
+        />
+
+        <v-card-text style="max-height: 400px">
+          <LabelSelector
+            :searchQuery="subtractLabelsSearchQuery"
+            :items="allLabels"
+            v-model="subtractLabelsIndices"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn @click="subtractLabelsIndices = []" text class="text-none">Clear</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn
+            :loading="subtractLoader"
+            class="text-none"
+            color="primary"
+            text
+            @click="subtractLabels"
+            >Commit</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :persistent="addLoader" scrollable v-model="addActorsDialog" max-width="400px">
+      <v-card :loading="addLoader">
+        <v-card-title>Add {{ addActorsIndices.length }} {{ (actorPlural || "").toLowerCase() }} to selected images</v-card-title>
+        <v-card-text style="max-height: 400px">
+          <ActorSelector v-model="addActors" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn
+            :loading="addLoader"
+            class="text-none"
+            color="primary"
+            text
+            @click="addActorsToImages"
+            >Add</v-btn
+          >
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -245,9 +407,11 @@ import IImage from "@/types/image";
 import ILabel from "@/types/label";
 import DrawerMixin from "@/mixins/drawer";
 import { mixins } from "vue-class-component";
-import { imageModule } from "@/store/image";
 import IActor from "@/types/actor";
 import ActorSelector from "@/components/ActorSelector.vue";
+import { isQueryDifferent, SearchStateManager } from "../util/searchState";
+import { Route } from "vue-router";
+import { Dictionary } from "vue-router/types/router";
 
 @Component({
   components: {
@@ -259,6 +423,10 @@ import ActorSelector from "@/components/ActorSelector.vue";
   },
 })
 export default class ImageList extends mixins(DrawerMixin) {
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
   addNewItem(image: IImage) {
     this.images.unshift(image);
   }
@@ -270,7 +438,7 @@ export default class ImageList extends mixins(DrawerMixin) {
   rerollSeed() {
     const seed = Math.random().toString(36);
     localStorage.setItem("pm_seed", seed);
-    if (this.sortBy === "$shuffle") this.loadPage(this.page);
+    if (this.searchState.sortBy === "$shuffle") this.loadPage();
     return seed;
   }
 
@@ -279,6 +447,56 @@ export default class ImageList extends mixins(DrawerMixin) {
   fetchLoader = false;
   fetchError = false;
   fetchingRandom = false;
+  numResults = 0;
+  numPages = 0;
+
+  searchStateManager = new SearchStateManager<{
+    page: number;
+    query: string;
+    favoritesOnly: boolean;
+    bookmarksOnly: boolean;
+    ratingFilter: number;
+    selectedLabels: { include: string[]; exclude: string[] };
+    selectedActors: IActor[];
+    sortBy: string;
+    sortDir: string;
+    showEmptyField: string;
+  }>({
+    localStorageNamer: (key: string) => `pm_image${key[0].toUpperCase()}${key.substr(1)}`,
+    props: {
+      page: {
+        default: () => 1,
+      },
+      query: true,
+      favoritesOnly: { default: () => false },
+      bookmarksOnly: { default: () => false },
+      ratingFilter: { default: () => 0 },
+      selectedActors: {
+        default: () => [],
+        serialize: (actors: IActor[]) =>
+          JSON.stringify(
+            actors.map((a) => ({
+              _id: a._id,
+              name: a.name,
+              avatar: a.avatar,
+              thumbnail: a.thumbnail,
+            }))
+          ),
+      },
+      selectedLabels: { default: () => ({ include: [], exclude: [] }) },
+      sortBy: { default: () => "relevance" },
+      sortDir: {
+        default: () => "desc",
+      },
+      showEmptyField: {default: () => ""},
+    },
+  });
+
+  jumpPage: string | null = null;
+
+  get searchState() {
+    return this.searchStateManager.state;
+  }
 
   lightboxIndex = null as number | null;
 
@@ -287,50 +505,50 @@ export default class ImageList extends mixins(DrawerMixin) {
   }
 
   allLabels = [] as ILabel[];
-  selectedLabels = {
-    include: this.tryReadLabelsFromLocalStorage("pm_imageInclude"),
-    exclude: this.tryReadLabelsFromLocalStorage("pm_imageExclude"),
-  };
-
-  selectedActors = (() => {
-    const fromLocalStorage = localStorage.getItem("pm_imageActors");
-    if (fromLocalStorage) {
-      return JSON.parse(fromLocalStorage);
-    }
-    return [];
-  })() as IActor[];
 
   get selectedActorIds() {
-    return this.selectedActors.map((ac) => ac._id);
+    return this.searchState.selectedActors.map((ac) => ac._id);
   }
 
-  onSelectedLabelsChange(val: any) {
-    localStorage.setItem("pm_imageInclude", val.include.join(","));
-    localStorage.setItem("pm_imageExclude", val.exclude.join(","));
-    this.refreshed = false;
+  @Watch("$route")
+  onRouteChange(to: Route, from: Route) {
+    if (isQueryDifferent(to.query as Dictionary<string>, from.query as Dictionary<string>)) {
+      // Only update the state and reload, if the query changed => filters changed
+      this.searchStateManager.parseFromQuery(to.query as Dictionary<string>);
+      this.loadPage();
+      return;
+    }
   }
 
-  // largeThumbs = localStorage.getItem("pm_imageLargeThumbs") == "true" || false;
-
-  query = localStorage.getItem("pm_imageQuery") || "";
-
-  set page(page: number) {
-    imageModule.setPage(page);
+  onPageChange(val: number) {
+    let page = Number(val);
+    if (isNaN(page) || page <= 0 || page > this.numPages) {
+      page = 1;
+    }
+    this.jumpPage = null;
+    this.searchStateManager.onValueChanged("page", page);
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
-  get page() {
-    return imageModule.page;
+  updateRoute(query: { [x: string]: string }, replace = false, noChangeCb: Function | null = null) {
+    if (isQueryDifferent(query, this.$route.query as Dictionary<string>)) {
+      // Only change the current url if the new url will be different to avoid redundant navigation
+      const update = {
+        name: "images",
+        query, // Always override the current query
+      };
+      if (replace) {
+        this.$router.replace(update);
+      } else {
+        this.$router.push(update);
+      }
+    } else {
+      noChangeCb?.();
+    }
   }
-
-  get numResults() {
-    return imageModule.numResults;
-  }
-
-  get numPages() {
-    return imageModule.numPages;
-  }
-
-  sortDir = localStorage.getItem("pm_imageSortDir") || "desc";
   sortDirItems = [
     {
       text: "Ascending",
@@ -342,7 +560,6 @@ export default class ImageList extends mixins(DrawerMixin) {
     },
   ];
 
-  sortBy = localStorage.getItem("pm_imageSortBy") || "relevance";
   sortByItems = [
     {
       text: "Relevance",
@@ -366,16 +583,157 @@ export default class ImageList extends mixins(DrawerMixin) {
     },
   ];
 
-  favoritesOnly = localStorage.getItem("pm_imageFavorite") == "true";
-  bookmarksOnly = localStorage.getItem("pm_imageBookmark") == "true";
-  ratingFilter = parseInt(localStorage.getItem("pm_imageRating") || "0");
-
   uploadDialog = false;
   isUploading = false;
 
   selectedImages = [] as string[];
   lastSelectionImageId: string | null = null;
   deleteSelectedImagesDialog = false;
+
+  addLabelsDialog = false;
+  addLabelsIndices: number[] = [];
+  addLabelsSearchQuery = "";
+  addLoader = false;
+  addActorsDialog = false;
+  addActorsIndices: number[] = [];
+  addActors = [] as IActor[];
+
+  subtractLabelsDialog = false;
+  subtractLabelsIndices: number[] = [];
+  subtractLabelsSearchQuery = "";
+  subtractLoader = false;
+
+  get labelsToAdd(): ILabel[] {
+    return this.addLabelsIndices.map((i) => this.allLabels[i]).filter(Boolean);
+  }
+
+  get labelsToSubtract(): ILabel[] {
+    return this.subtractLabelsIndices.map((i) => this.allLabels[i]).filter(Boolean);
+  }
+
+  async addLabelsToImage(imageId: string, labelIds: string[]): Promise<void> {
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($item: String!, $labels: [String!]!) {
+          attachLabels(item: $item, labels: $labels)
+        }
+      `,
+      variables: {
+        item: imageId,
+        labels: labelIds,
+      },
+    });
+  }
+
+  async addActorsToImage(image: IImage): Promise<void> {
+    // get array of existing actor ids of the current image
+    const existingActorIds = image.actors.map((a) => a._id);
+    const newActorIds = this.addActors.map((a) => a._id).concat(existingActorIds);
+
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
+          updateImages(ids: $ids, opts: $opts) {
+            _id
+          }
+        }
+      `,
+      variables: {
+        ids: [image._id],
+        opts: {
+          actors: newActorIds,
+        },
+      },
+    });
+  }
+
+  async removeLabelFromImage(imageId: string, labelId: string): Promise<void> {
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($item: String!, $label: String!) {
+          removeLabel(item: $item, label: $label)
+        }
+      `,
+      variables: {
+        item: imageId,
+        label: labelId,
+      },
+    });
+  }
+
+  async subtractLabels(): Promise<void> {
+    try {
+      const labelIdsToSubtract = this.labelsToSubtract.map((l) => l._id);
+      this.subtractLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+
+        const image = this.images.find((img) => img._id === id);
+
+        if (image) {
+          for (const labelId of labelIdsToSubtract) {
+            await this.removeLabelFromImage(id, labelId);
+          }
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.subtractLabelsDialog = false;
+    } catch (error) {
+      console.error(error);
+    }
+    this.subtractLoader = false;
+  }
+
+  async addLabels(): Promise<void> {
+    try {
+      const labelIdsToAdd = this.labelsToAdd.map((l) => l._id);
+      this.addLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+
+        const image = this.images.find((img) => img._id === id);
+
+        if (image) {
+          await this.addLabelsToImage(id, labelIdsToAdd);
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.addLabelsDialog = false;
+    } catch (error) {
+      console.error(error);
+    }
+    this.addLoader = false;
+  }
+
+  async addActorsToImages(): Promise<void> {
+    try {
+      this.addLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+        const image = this.images.find((img) => img._id == id);
+
+        if (image) {
+          await this.addActorsToImage(image);
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.addLoader = false;
+    } catch (error) {
+      console.error(error);
+    }
+
+    this.addLoader = false;
+    this.addActorsDialog = false;
+  }
 
   isImageSelected(id: string) {
     return !!this.selectedImages.find((selectedId) => id === selectedId);
@@ -430,7 +788,7 @@ export default class ImageList extends mixins(DrawerMixin) {
   deleteSelection() {
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!) {
+        mutation ($ids: [String!]!) {
           removeImages(ids: $ids)
         }
       `,
@@ -454,7 +812,7 @@ export default class ImageList extends mixins(DrawerMixin) {
   removeImage(index: number) {
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!) {
+        mutation ($ids: [String!]!) {
           removeImages(ids: $ids)
         }
       `,
@@ -482,67 +840,18 @@ export default class ImageList extends mixins(DrawerMixin) {
     this.uploadDialog = true;
   }
 
-  refreshed = true;
-
   resetPagination() {
-    imageModule.resetPagination();
-    this.refreshed = true;
-    this.loadPage(this.page).catch(() => {
-      this.refreshed = false;
+    this.searchStateManager.onValueChanged("page", 1);
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
     });
-  }
-
-  @Watch("ratingFilter", {})
-  onRatingChange(newVal: number) {
-    localStorage.setItem("pm_imageRating", newVal.toString());
-    this.refreshed = false;
-  }
-
-  @Watch("favoritesOnly")
-  onFavoriteChange(newVal: boolean) {
-    localStorage.setItem("pm_imageFavorite", "" + newVal);
-    this.refreshed = false;
-  }
-
-  @Watch("bookmarksOnly")
-  onBookmarkChange(newVal: boolean) {
-    localStorage.setItem("pm_imageBookmark", "" + newVal);
-    this.refreshed = false;
-  }
-
-  @Watch("sortDir")
-  onSortDirChange(newVal: string) {
-    localStorage.setItem("pm_imageSortDir", newVal);
-    this.refreshed = false;
-  }
-
-  @Watch("sortBy")
-  onSortChange(newVal: string) {
-    localStorage.setItem("pm_imageSortBy", newVal);
-    this.refreshed = false;
-  }
-
-  @Watch("selectedLabels")
-  onLabelChange() {
-    this.refreshed = false;
-  }
-
-  @Watch("query")
-  onQueryChange(newVal: string | null) {
-    localStorage.setItem("pm_imageQuery", newVal || "");
-    this.refreshed = false;
-  }
-
-  @Watch("selectedActorIds", { deep: true })
-  onSelectedActorsChange(newVal: string[]) {
-    localStorage.setItem("pm_sceneActors", JSON.stringify(this.selectedActors));
-    this.refreshed = false;
   }
 
   async fetchPage(page: number, take = 24, random?: boolean, seed?: string) {
     const result = await ApolloClient.query({
       query: gql`
-        query($query: ImageSearchQuery!, $seed: String) {
+        query ($query: ImageSearchQuery!, $seed: String) {
           getImages(query: $query, seed: $seed) {
             numItems
             numPages
@@ -552,6 +861,7 @@ export default class ImageList extends mixins(DrawerMixin) {
                 _id
                 name
                 color
+                aliases
               }
               studio {
                 _id
@@ -579,17 +889,18 @@ export default class ImageList extends mixins(DrawerMixin) {
       `,
       variables: {
         query: {
-          include: this.selectedLabels.include,
-          exclude: this.selectedLabels.exclude,
-          query: this.query || "",
+          include: this.searchState.selectedLabels.include,
+          exclude: this.searchState.selectedLabels.exclude,
+          query: this.searchState.query || "",
           take,
           page: page - 1,
-          sortDir: this.sortDir,
-          sortBy: random ? "$shuffle" : this.sortBy,
-          favorite: this.favoritesOnly,
-          bookmark: this.bookmarksOnly,
-          rating: this.ratingFilter,
+          sortDir: this.searchState.sortDir,
+          sortBy: random ? "$shuffle" : this.searchState.sortBy,
+          favorite: this.searchState.favoritesOnly,
+          bookmark: this.searchState.bookmarksOnly,
+          rating: this.searchState.ratingFilter,
           actors: this.selectedActorIds,
+          emptyField: this.searchState.showEmptyField,
         },
         seed: seed || localStorage.getItem("pm_seed") || "default",
       },
@@ -602,17 +913,21 @@ export default class ImageList extends mixins(DrawerMixin) {
     return label.aliases.slice().sort().join(", ");
   }
 
-  loadPage(page: number) {
+  loadPage() {
     this.fetchLoader = true;
     this.selectedImages = [];
 
-    return this.fetchPage(page)
+    if (this.searchState.showEmptyField === 'actors') {
+      this.searchState.selectedActors = [];
+    }
+
+    return this.fetchPage(this.searchState.page)
       .then((result) => {
+        this.searchStateManager.refreshed = true;
         this.fetchError = false;
-        imageModule.setPagination({
-          numResults: result.numItems,
-          numPages: result.numPages,
-        });
+        this.fetchError = false;
+        this.numResults = result.numItems;
+        this.numPages = result.numPages;
         this.images = result.items;
       })
       .catch((err) => {
@@ -624,15 +939,14 @@ export default class ImageList extends mixins(DrawerMixin) {
       });
   }
 
-  refreshPage() {
-    this.loadPage(imageModule.page);
-  }
-
-  mounted() {
-    if (!this.images.length) this.refreshPage();
-  }
-
   beforeMount() {
+    this.searchStateManager.initState(this.$route.query as Dictionary<string>);
+    this.updateRoute(this.searchStateManager.toQuery(), true, () => {
+      // If the query wasn't different, there will be no route change
+      // => manually trigger loadPage
+      this.loadPage();
+    });
+
     ApolloClient.query({
       query: gql`
         {
@@ -640,6 +954,7 @@ export default class ImageList extends mixins(DrawerMixin) {
             _id
             name
             color
+            aliases
           }
         }
       `,
@@ -647,8 +962,8 @@ export default class ImageList extends mixins(DrawerMixin) {
       .then((res) => {
         this.allLabels = res.data.getLabels;
         if (!this.allLabels.length) {
-          this.selectedLabels.include = [];
-          this.selectedLabels.exclude = [];
+          this.searchState.selectedLabels.include = [];
+          this.searchState.selectedLabels.exclude = [];
         }
       })
       .catch((err) => {

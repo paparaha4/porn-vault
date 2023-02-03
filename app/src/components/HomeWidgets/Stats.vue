@@ -8,7 +8,7 @@
 
     <div class="my-3">
       <span class="mr-2 d-inline-block display-1">{{ numActors }}</span>
-      <span class="subtitle-1">actors</span>
+      <span class="subtitle-1">{{ actorPlural.toLowerCase() }}</span>
     </div>
     <v-divider></v-divider>
 
@@ -29,17 +29,41 @@
 import { Component, Vue } from "vue-property-decorator";
 import ApolloClient from "@/apollo";
 import gql from "graphql-tag";
+import { contextModule } from "@/store/context";
 
 @Component({
   components: {},
 })
 export default class Stats extends Vue {
+  infoInterval = null as NodeJS.Timeout | null;
+
   numScenes = 0;
   numActors = 0;
   numMovies = 0;
   numImages = 0;
 
-  beforeMount() {
+  get actorSingular() {
+    return contextModule.actorSingular;
+  }
+
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
+  created() {
+    this.getInfo();
+    this.infoInterval = setInterval(() => {
+      this.getInfo();
+    }, 30000);
+  }
+
+  destroyed() {
+    if (this.infoInterval) {
+      clearInterval(this.infoInterval);
+    }
+  }
+
+  async getInfo() {
     ApolloClient.query({
       query: gql`
         {

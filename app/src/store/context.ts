@@ -3,18 +3,39 @@ import { VuexModule, Module, Mutation, Action } from "vuex-class-modules";
 @Module
 class ContextModule extends VuexModule {
   showFilters = false;
-
-  sceneAspectRatio = 16 / 9;
-  actorAspectRatio = 1;
-  scenePauseOnUnfocus = false;
-  showCardLabels = true;
-
-  fillActorCards = true;
-
   showSidenav = true; // TODO: store and load from localStorage
-  scenePreviewOnMouseHover = false;
+  loadingSetup = true;
+  serverReady = false;
 
+  // UI > GENERAL
+  showCardLabels = true;
   experimental = false;
+
+  // UI > SCENES
+  sceneAspectRatio = 16 / 9;
+  scenePauseOnUnfocus = false;
+  scenePreviewOnMouseHover = false;
+  sceneSeekBackward = 5;
+  sceneSeekForward = 5;
+
+  // UI > ACTORS
+  actorAspectRatio = 3 / 4;
+  fillActorCards = true;
+  actorSingular = "Actor";
+  actorPlural = "Actors";
+
+  // UI > MOVIES
+  defaultDVDShow3d = true;
+
+  @Mutation
+  toggleLoadingSetup(bool: boolean) {
+    this.loadingSetup = bool;
+  }
+
+  @Mutation
+  toggleServerReady(bool: boolean) {
+    this.serverReady = bool;
+  }
 
   @Mutation
   toggleExperimental(bool: boolean) {
@@ -59,6 +80,32 @@ class ContextModule extends VuexModule {
   @Mutation
   setScenePreviewOnMouseHover(val: boolean) {
     this.scenePreviewOnMouseHover = val;
+  }
+
+  @Mutation
+  setActorSingular(val: string) {
+    this.actorSingular = val;
+  }
+
+  @Mutation
+  setActorPlural(val: string) {
+    this.actorPlural = val;
+  }
+
+  @Mutation
+  setSceneSeekBackward(val: number) {
+    this.sceneSeekBackward = val;
+  }
+
+  @Mutation
+  setSceneSeekForward(val: number) {
+    this.sceneSeekForward = val;
+  }
+
+  // MOVIES
+  @Mutation
+  toggleDefaultDVDShow3d(bool: boolean) {
+    this.defaultDVDShow3d = bool;
   }
 }
 

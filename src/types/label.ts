@@ -1,6 +1,6 @@
-import { labelCollection, labelledItemCollection } from "../database";
+import { collections } from "../database";
 import { generateHash } from "../utils/hash";
-import * as logger from "../utils/logger";
+import { logger } from "../utils/logger";
 import { arrayDiff } from "../utils/misc";
 import LabelledItem from "./labelled_item";
 
@@ -13,7 +13,7 @@ export default class Label {
   color?: string | null;
 
   static async remove(_id: string): Promise<void> {
-    await labelCollection.remove(_id);
+    await collections.labels.remove(_id);
   }
 
   static async setForItem(itemId: string, labelIds: string[], type: string): Promise<void> {
@@ -22,13 +22,13 @@ export default class Label {
     const { removed, added } = arrayDiff(oldRefs, [...new Set(labelIds)], "label", (l) => l);
 
     for (const oldRef of removed) {
-      await labelledItemCollection.remove(oldRef._id);
+      await collections.labelledItems.remove(oldRef._id);
     }
 
     for (const id of added) {
       const labelledItem = new LabelledItem(itemId, id, type);
-      logger.log(`Adding label: ${JSON.stringify(labelledItem)}`);
-      await labelledItemCollection.upsert(labelledItem._id, labelledItem);
+      logger.debug(`Adding label: ${JSON.stringify(labelledItem)}`);
+      await collections.labelledItems.upsert(labelledItem._id, labelledItem);
     }
   }
 
@@ -39,8 +39,8 @@ export default class Label {
 
     for (const id of added) {
       const labelledItem = new LabelledItem(itemId, id, type);
-      logger.log(`Adding label: ${JSON.stringify(labelledItem)}`);
-      await labelledItemCollection.upsert(labelledItem._id, labelledItem);
+      logger.debug(`Adding label: ${JSON.stringify(labelledItem)}`);
+      await collections.labelledItems.upsert(labelledItem._id, labelledItem);
     }
   }
 
@@ -50,15 +50,15 @@ export default class Label {
   }
 
   static async getById(_id: string): Promise<Label | null> {
-    return await labelCollection.get(_id);
+    return collections.labels.get(_id);
   }
 
-  static async getBulk(_ids: string[]): Promise<Label[]> {
-    return (await labelCollection.getBulk(_ids)).filter(Boolean);
+  static getBulk(_ids: string[]): Promise<Label[]> {
+    return collections.labels.getBulk(_ids);
   }
 
   static async getAll(): Promise<Label[]> {
-    return await labelCollection.getAll();
+    return collections.labels.getAll();
   }
 
   static async find(name: string): Promise<Label | undefined> {

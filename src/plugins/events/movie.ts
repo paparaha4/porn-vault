@@ -1,16 +1,48 @@
 import { getConfig } from "../../config";
 import { ApplyStudioLabelsEnum } from "../../config/schema";
-import { imageCollection, studioCollection } from "../../database";
+import { collections } from "../../database";
 import { buildFieldExtractor, extractStudios } from "../../extractor";
 import { runPluginsSerial } from "../../plugins";
 import { indexImages } from "../../search/image";
 import { indexStudios } from "../../search/studio";
+import Actor from "../../types/actor";
+import Image from "../../types/image";
+import Label from "../../types/label";
 import Movie from "../../types/movie";
+import Scene from "../../types/scene";
 import Studio from "../../types/studio";
-import * as logger from "../../utils/logger";
+import { logger } from "../../utils/logger";
 import { validRating } from "../../utils/misc";
 import { createImage, createLocalImage } from "../context";
 import { onStudioCreate } from "./studio";
+
+function injectServerFunctions(movie: Movie) {
+  let actors: Actor[], labels: Label[], scenes: Scene[], rating: number;
+  return {
+    $getActors: async () => (actors ??= await Movie.getActors(movie)),
+    $getLabels: async () => (labels ??= await Movie.getLabels(movie)),
+    $getScenes: async () => (scenes ??= await Movie.getScenes(movie)),
+    $getRating: async () => (rating ??= await Movie.getRating(movie)),
+    $createLocalImage: async (path: string, name: string, thumbnail?: boolean) => {
+      const img = await createLocalImage(path, name, thumbnail);
+      await collections.images.upsert(img._id, img);
+
+      if (!thumbnail) {
+        await indexImages([img]);
+      }
+
+      return img._id;
+    },
+    $createImage: async (url: string, name: string, thumbnail?: boolean) => {
+      const img = await createImage(url, name, thumbnail);
+      await collections.images.upsert(img._id, img);
+      if (!thumbnail) {
+        await indexImages([img]);
+      }
+      return img._id;
+    },
+  };
+}
 
 // This function has side effects
 export async function onMovieCreate(
@@ -22,24 +54,7 @@ export async function onMovieCreate(
   const pluginResult = await runPluginsSerial(config, event, {
     movie: JSON.parse(JSON.stringify(movie)) as Movie,
     movieName: movie.name,
-    $createLocalImage: async (path: string, name: string, thumbnail?: boolean) => {
-      const img = await createLocalImage(path, name, thumbnail);
-      await imageCollection.upsert(img._id, img);
-
-      if (!thumbnail) {
-        await indexImages([img]);
-      }
-
-      return img._id;
-    },
-    $createImage: async (url: string, name: string, thumbnail?: boolean) => {
-      const img = await createImage(url, name, thumbnail);
-      await imageCollection.upsert(img._id, img);
-      if (!thumbnail) {
-        await indexImages([img]);
-      }
-      return img._id;
-    },
+    ...injectServerFunctions(movie),
   });
 
   if (
@@ -47,6 +62,10 @@ export async function onMovieCreate(
     pluginResult.frontCover.startsWith("im_") &&
     (!movie.frontCover || config.plugins.allowMovieThumbnailOverwrite)
   ) {
+    const image = await Image.getById(pluginResult.frontCover);
+    if (image && (await Image.addDimensions(image))) {
+      await collections.images.upsert(image._id, image);
+    }
     movie.frontCover = pluginResult.frontCover;
   }
 
@@ -55,6 +74,10 @@ export async function onMovieCreate(
     pluginResult.backCover.startsWith("im_") &&
     (!movie.backCover || config.plugins.allowMovieThumbnailOverwrite)
   ) {
+    const image = await Image.getById(pluginResult.backCover);
+    if (image && (await Image.addDimensions(image))) {
+      await collections.images.upsert(image._id, image);
+    }
     movie.backCover = pluginResult.backCover;
   }
 
@@ -63,6 +86,10 @@ export async function onMovieCreate(
     pluginResult.spineCover.startsWith("im_") &&
     (!movie.spineCover || config.plugins.allowMovieThumbnailOverwrite)
   ) {
+    const image = await Image.getById(pluginResult.spineCover);
+    if (image && (await Image.addDimensions(image))) {
+      await collections.images.upsert(image._id, image);
+    }
     movie.spineCover = pluginResult.spineCover;
   }
 
@@ -113,7 +140,7 @@ export async function onMovieCreate(
       movie.studio = studio._id;
 
       studio = await onStudioCreate(studio, studioLabels, "studioCreated");
-      await studioCollection.upsert(studio._id, studio);
+      await collections.studios.upsert(studio._id, studio);
       await Studio.findUnmatchedScenes(
         studio,
         config.matching.applyStudioLabels.includes(
@@ -124,7 +151,7 @@ export async function onMovieCreate(
       );
       await indexStudios([studio]);
 
-      logger.log(`Created studio ${studio.name}`);
+      logger.debug(`Created studio ${studio.name}`);
     }
   }
 
