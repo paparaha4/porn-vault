@@ -100,28 +100,30 @@ export function buildCustomFilter(filters?: CustomFieldFilter[]): unknown[] {
 
 export const DEFAULT_PAGE_SIZE = 24;
 
-function typeahead(query: string | undefined | null): string {
+/* function typeahead(query: string | undefined | null): string {
   return query ? `${query}*` : "";
-}
+} */
 
 export function searchQuery(query: string | undefined | null, fields: string[]): unknown[] {
   if (query && query.length) {
+    const normalizedQuery = query.trim().replace(/ {2,}/g, " ");
     return [
       {
         multi_match: {
-          query,
+          query: normalizedQuery,
           fields,
-          fuzziness: "AUTO",
+          type: "cross_fields",
+          operator: "and",
         },
       },
-      {
+      /*  {
         query_string: {
-          query: typeahead(query),
+          query: typeahead(normalizedQuery),
           fields,
           analyze_wildcard: true,
-          boost: 0.25,
+          boost: 0.1,
         },
-      },
+      }, */
     ];
   }
   return [];
@@ -197,32 +199,6 @@ export function bookmark(bookmark?: boolean): unknown[] {
   return [];
 }
 
-export function unwatchedOnly(unwatchedOnly?: boolean): unknown[] {
-  if (unwatchedOnly) {
-    return [
-      {
-        bool: {
-          should: [
-            {
-              bool: {
-                must_not: {
-                  exists: {
-                    field: "numViews",
-                  },
-                },
-              },
-            },
-            {
-              term: { numViews: 0 },
-            },
-          ],
-        },
-      },
-    ];
-  }
-  return [];
-}
-
 export function arrayFilter(ids: string[] | undefined, prop: string, op: "AND" | "OR"): unknown[] {
   if (ids && ids.length) {
     return [
@@ -242,19 +218,6 @@ export function includeFilter(include?: string[]): unknown[] {
 
 export function excludeFilter(exclude?: string[]): unknown[] {
   return arrayFilter(exclude, "-labels", "AND");
-}
-
-export function emptyField(emptyField?: string): unknown[] {
-  if (emptyField) {
-    return [
-      {
-        "exists": {
-          "field": emptyField,
-        },
-      },
-    ]
-  }
-  return []
 }
 
 export function shuffleSwitch(query: unknown[], shuffle: unknown[]): Record<string, unknown> {

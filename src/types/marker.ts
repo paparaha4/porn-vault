@@ -1,6 +1,6 @@
 import * as path from "path";
 
-import { collections } from "../database";
+import { actorCollection, imageCollection, markerCollection } from "../database";
 import { singleScreenshot } from "../ffmpeg/screenshot";
 import { searchMarkers } from "../search/marker";
 import { generateHash } from "../utils/hash";
@@ -33,10 +33,9 @@ export default class Marker {
   }
 
   static async getAll(): Promise<Marker[]> {
-    return collections.markers.getAll();
+    return markerCollection.getAll();
   }
 
-  // Function has side effects
   static async createMarkerThumbnail(marker: Marker): Promise<void> {
     const scene = await Scene.getById(marker.scene);
     if (!scene || !scene.path) {
@@ -57,12 +56,13 @@ export default class Marker {
     await Image.setLabels(image, labels);
 
     await singleScreenshot(scene.path, imagePath, marker.time + 15, 480);
-    await collections.images.upsert(image._id, image);
+    await imageCollection.upsert(image._id, image);
+    await markerCollection.upsert(marker._id, marker);
   }
 
   static async getActors(marker: Marker): Promise<Actor[]> {
     const references = await ActorReference.getByItem(marker._id);
-    return (await collections.actors.getBulk(references.map((r) => r.actor))).sort((a, b) =>
+    return (await actorCollection.getBulk(references.map((r) => r.actor))).sort((a, b) =>
       a.name.localeCompare(b.name)
     );
   }
@@ -100,19 +100,20 @@ export default class Marker {
   }
 
   static async getByScene(sceneId: string): Promise<Marker[]> {
-    return collections.markers.query("scene-index", sceneId);
+    const markers = await markerCollection.query("scene-index", sceneId);
+    return markers.sort((a, b) => a.time - b.time);
   }
 
   static async getById(_id: string): Promise<Marker | null> {
-    return collections.markers.get(_id);
+    return markerCollection.get(_id);
   }
 
   static getBulk(_ids: string[]): Promise<Marker[]> {
-    return collections.markers.getBulk(_ids);
+    return markerCollection.getBulk(_ids);
   }
 
   static async remove(_id: string): Promise<void> {
-    await collections.markers.remove(_id);
+    await markerCollection.remove(_id);
   }
 
   static async removeByScene(sceneId: string): Promise<void> {

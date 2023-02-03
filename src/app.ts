@@ -1,27 +1,26 @@
 import express from "express";
-import { existsSync } from "fs";
 import https, { ServerOptions } from "https";
 import LRU from "lru-cache";
 import moment from "moment";
-import * as path from "path";
+const { loadNuxt, Builder } = require("nuxt");
 
-import { collections } from "./database";
+import { readdirAsync, statAsync } from "./utils/fs/async";
+import { sceneCollection } from "./database";
 import { mountApolloServer } from "./middlewares/apollo";
 import cors from "./middlewares/cors";
-import { checkPassword, passwordHandler } from "./middlewares/password";
+/* import { checkPassword, passwordHandler } from "./middlewares/password"; */
 import queueRouter from "./queue_router";
-import configRouter from "./routers/config";
 import mediaRouter from "./routers/media";
 import scanRouter from "./routers/scan";
-import systemRouter from "./routers/system";
 import { applyPublic } from "./static";
 import Actor from "./types/actor";
 import Scene from "./types/scene";
 import SceneView from "./types/watch";
-import { handleError, httpLog, logger } from "./utils/logger";
+import { httpLog, logger } from "./utils/logger";
 import { createObjectSet } from "./utils/misc";
-import { renderHandlebars } from "./utils/render";
 import VERSION from "./version";
+import { resolve, parse } from "path";
+import { statSync } from "fs";
 
 export class Vault {
   private app: express.Application;
@@ -65,7 +64,7 @@ export class Vault {
   }
 }
 
-export function createVault(): Vault {
+export async function createVault(): Promise<Vault> {
   const statCache = new LRU({
     max: 100,
     maxAge: 1000 * 60 /* 1 minute */,
@@ -78,41 +77,13 @@ export function createVault(): Vault {
 
   app.use(httpLog);
 
-  applyPublic(app);
-  app.get("/", async (req, res) => {
-    const file = path.join(process.cwd(), "app/dist/index.html");
-
-    if (existsSync(file)) res.sendFile(file);
-    else {
-      return res.status(404).send(
-        await renderHandlebars("./views/error.html", {
-          code: 404,
-          message: `File <b>${file}</b> not found`,
-        })
-      );
-    }
-  });
-
-  // Allow access to these apis before "serverReady"
-  app.get("/api/password", checkPassword);
-  app.use(passwordHandler);
-  app.use("/api/system", systemRouter);
-  app.use("/api/config", configRouter);
-  app.get("/api/version", (req, res) => {
+  app.get("/api/version", (_req, res) => {
     res.json({
       result: VERSION,
     });
   });
 
-  app.use("/api", (req, res, next) => {
-    if (vault.serverReady) {
-      next();
-    } else {
-      res.redirect("/");
-    }
-  });
-
-  app.get("/api/label-usage/scenes", async (req, res) => {
+  app.get("/api/label-usage/scenes", async (_req, res) => {
     const cached = statCache.get("scene-label-usage");
     if (cached) {
       logger.debug("Using cached scene label usage");
@@ -126,7 +97,7 @@ export function createVault(): Vault {
     res.json(scores);
   });
 
-  app.get("/api/label-usage/actors", async (req, res) => {
+  app.get("/api/label-usage/actors", async (_req, res) => {
     const cached = statCache.get("actor-label-usage");
     if (cached) {
       logger.debug("Using cached actor label usage");
@@ -140,6 +111,18 @@ export function createVault(): Vault {
     res.json(scores);
   });
 
+  app.get("/api/setup", (_req, res) => {
+    res.json({
+      serverReady: vault.serverReady,
+      setupMessage: vault.setupMessage,
+    });
+  });
+
+  applyPublic(app);
+
+  /* app.get("/api/password", checkPassword);
+  app.use(passwordHandler); */
+
   app.use("/api/media", mediaRouter);
 
   /* app.get("/log", (req, res) => {
@@ -152,10 +135,12 @@ export function createVault(): Vault {
 
   app.get("/api/remaining-time", async (_req, res) => {
     const views = createObjectSet(await SceneView.getAll(), "scene");
-    if (!views.length) return res.json(null);
+    if (!views.length) {
+      return res.json(null);
+    }
 
     const now = Date.now();
-    const numScenes = await collections.scenes.count();
+    const numScenes = await sceneCollection.count();
     const viewedPercent = views.length / numScenes;
     const currentInterval = now - views[0].date;
     const fullTime = currentInterval / viewedPercent;
@@ -181,15 +166,62 @@ export function createVault(): Vault {
 
   app.use("/api/scan", scanRouter);
 
-  // Error handler
-  app.use(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    (err: number, req: express.Request, res: express.Response, next: express.NextFunction) => {
-      handleError(`Unknown error in middleware from url ${req.path}`, err);
-      if (typeof err === "number") return res.sendStatus(err);
-      return res.sendStatus(500);
+  app.use("/api/browse", async (req, res) => {
+    try {
+      let path = resolve(String(req.query.path || process.cwd()));
+
+      if (!statSync(path).isDirectory()) {
+        path = parse(path).dir;
+      }
+
+      const files: {
+        name: string;
+        path: string;
+        size: number;
+        createdOn: number;
+        dir: boolean;
+      }[] = [];
+
+      const entries = await readdirAsync(path);
+
+      for (const entry of entries) {
+        const filePath = resolve(path, entry);
+        const stats = await statAsync(filePath);
+        files.push({
+          name: entry,
+          path: filePath,
+          size: stats.size,
+          createdOn: stats.mtimeMs,
+          dir: stats.isDirectory(),
+        });
+      }
+
+      const parentFolder = resolve(path, "..");
+      const hasParentFolder = path !== parentFolder;
+
+      res.json({
+        path,
+        files,
+        parentFolder: hasParentFolder ? parentFolder : null,
+      });
+    } catch (error) {
+      res.sendStatus(500);
     }
-  );
+  });
+
+  logger.verbose(`Loading page renderer`);
+  const isDev = process.env.NODE_ENV !== "production";
+  const nuxt = await loadNuxt(isDev ? "dev" : "start");
+  await nuxt.ready();
+
+  if (isDev) {
+    logger.info(`Dev: Building page`);
+    const builder = new Builder(nuxt);
+    await builder.build();
+  }
+
+  // Nuxt also serves as error handler for any uncaught route
+  app.use(nuxt.render);
 
   return vault;
 }
