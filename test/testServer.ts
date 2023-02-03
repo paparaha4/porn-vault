@@ -73,6 +73,7 @@ function cleanupFiles() {
 interface ExtraTestConfig {
   plugins?: Partial<IConfig["plugins"]>;
   matching?: Partial<IConfig["matching"]>;
+  transcode?: Partial<IConfig["transcode"]>;
 }
 
 export async function startTestServer(
@@ -97,6 +98,10 @@ export async function startTestServer(
       matching: {
         ...testConfig.matching,
         ...(extraConfig.matching || {}),
+      },
+      transcode: {
+        ...testConfig.transcode,
+        ...(extraConfig.transcode || {}),
       },
     };
 
@@ -129,7 +134,7 @@ export async function startTestServer(
     console.log(`Server running on port ${port}`);
 
     vault.setupMessage = "Loading database...";
-    if (await izzyVersion()) {
+    if (await izzyVersion().catch(() => false)) {
       console.log("Izzy already running, clearing...");
       await resetIzzy();
     } else {

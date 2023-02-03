@@ -20,6 +20,11 @@ class StudioModule extends VuexModule {
   }
 
   @Mutation
+  setUrl(url: string) {
+    if (this.current) this.current.url = url;
+  }
+
+  @Mutation
   setCurrent(current: any) {
     this.current = current;
   }
@@ -30,8 +35,8 @@ class StudioModule extends VuexModule {
   }
 
   @Mutation
-  setBookmark(bool: number | null) {
-    if (this.current) this.current.bookmark = bool;
+  setBookmark(dateValue: number | null) {
+    if (this.current) this.current.bookmark = dateValue;
   }
 
   @Mutation

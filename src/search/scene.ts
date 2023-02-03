@@ -18,6 +18,7 @@ import {
   searchQuery,
   shuffle,
   shuffleSwitch,
+  unwatchedOnly,
 } from "./common";
 import { addSearchDocs, buildIndex, indexItems, ProgressCallback } from "./internal/buildIndex";
 
@@ -109,6 +110,7 @@ export async function removeScene(sceneId: string): Promise<void> {
     index: indexMap.scenes,
     id: sceneId,
     type: "_doc",
+    refresh: "wait_for",
   });
 }
 
@@ -121,6 +123,7 @@ export interface ISceneSearchQuery {
   query: string;
   favorite?: boolean;
   bookmark?: boolean;
+  unwatchedOnly: boolean;
   rating: number;
   include?: string[];
   exclude?: string[];
@@ -133,6 +136,8 @@ export interface ISceneSearchQuery {
   page?: number;
   durationMin?: number;
   durationMax?: number;
+
+  rawQuery?: unknown;
 }
 
 export async function searchScenes(
@@ -152,13 +157,14 @@ export async function searchScenes(
   return performSearch<ISceneSearchDoc, typeof options>({
     index: indexMap.scenes,
     options,
-    query: {
+    query: options.rawQuery || {
       bool: {
         ...shuffleSwitch(query, _shuffle),
         filter: [
           ...ratingFilter(options.rating),
           ...bookmark(options.bookmark),
           ...favorite(options.favorite),
+          ...unwatchedOnly(options.unwatchedOnly),
 
           ...includeFilter(options.include),
           ...excludeFilter(options.exclude),

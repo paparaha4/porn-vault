@@ -119,7 +119,7 @@ export function searchQuery(query: string | undefined | null, fields: string[]):
           query: typeahead(query),
           fields,
           analyze_wildcard: true,
-          boost: 0.5,
+          boost: 0.25,
         },
       },
     ];
@@ -197,6 +197,32 @@ export function bookmark(bookmark?: boolean): unknown[] {
   return [];
 }
 
+export function unwatchedOnly(unwatchedOnly?: boolean): unknown[] {
+  if (unwatchedOnly) {
+    return [
+      {
+        bool: {
+          should: [
+            {
+              bool: {
+                must_not: {
+                  exists: {
+                    field: "numViews",
+                  },
+                },
+              },
+            },
+            {
+              term: { numViews: 0 },
+            },
+          ],
+        },
+      },
+    ];
+  }
+  return [];
+}
+
 export function arrayFilter(ids: string[] | undefined, prop: string, op: "AND" | "OR"): unknown[] {
   if (ids && ids.length) {
     return [
@@ -216,6 +242,19 @@ export function includeFilter(include?: string[]): unknown[] {
 
 export function excludeFilter(exclude?: string[]): unknown[] {
   return arrayFilter(exclude, "-labels", "AND");
+}
+
+export function emptyField(emptyField?: string): unknown[] {
+  if (emptyField) {
+    return [
+      {
+        "exists": {
+          "field": emptyField,
+        },
+      },
+    ]
+  }
+  return []
 }
 
 export function shuffleSwitch(query: unknown[], shuffle: unknown[]): Record<string, unknown> {

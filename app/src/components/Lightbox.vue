@@ -46,7 +46,7 @@
         </v-btn>
         <v-btn @click="bookmark" icon>
           <v-icon>{{
-            currentImage.bookmark ? "mdi-bookmark-check" : "mdi-bookmark-outline"
+            currentImage.bookmark !== null ? "mdi-bookmark-check" : "mdi-bookmark-outline"
           }}</v-icon>
         </v-btn>
         <v-spacer></v-spacer>
@@ -82,6 +82,7 @@
               :item="currentImage._id"
               :value="currentImage.labels"
               @input="updateImageLabels"
+              :limit="999"
             >
               <v-chip
                 label
@@ -118,7 +119,9 @@
           </v-col>
         </v-row>
         <div class="text-center mt-2">
-          <v-btn small text @click="openEditActorsDialog">Edit actors</v-btn>
+          <v-btn small text @click="openEditActorsDialog">
+            Edit {{ (actorPlural || "").toLowerCase() }}
+          </v-btn>
         </div>
 
         <v-divider class="mt-4"></v-divider>
@@ -170,9 +173,10 @@
       <v-card>
         <v-card-title>Really delete image?</v-card-title>
         <v-card-text>
-          <v-alert type="error"
-            >This will absolutely annihilate the original source file on disk</v-alert
-          >Actors and scenes featuring this image will stay in your collection.
+          <v-alert type="error">
+            This will absolutely annihilate the original source file on disk
+          </v-alert>
+          {{ actorPlural }} and scenes featuring this image will stay in your collection.
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
@@ -191,7 +195,7 @@
 
     <v-dialog v-model="editActorsDialog" max-width="400px">
       <v-card>
-        <v-card-title>Edit image actors</v-card-title>
+        <v-card-title>Edit image {{ (actorPlural || "").toLowerCase() }}</v-card-title>
         <v-card-text>
           <ActorSelector v-model="editActors" />
         </v-card-text>
@@ -206,7 +210,7 @@
 
 <script lang="ts">
 import { Component, Vue, Watch, Prop } from "vue-property-decorator";
-import ApolloClient, { serverBase } from "../apollo";
+import ApolloClient from "../apollo";
 import gql from "graphql-tag";
 import LabelSelector from "../components/LabelSelector.vue";
 import ImageCard from "../components/Cards/Image.vue";
@@ -217,6 +221,7 @@ import IActor from "../types/actor";
 import SceneSelector from "../components/SceneSelector.vue";
 import { Touch } from "vuetify/lib/directives";
 import hotkeys from "hotkeys-js";
+import { contextModule } from "@/store/context";
 
 @Component({
   components: {
@@ -247,6 +252,10 @@ export default class Lightbox extends Vue {
   removeDialog = false;
 
   labelSearchQuery = "";
+
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
 
   get sidebarCss() {
     return {
@@ -319,11 +328,13 @@ export default class Lightbox extends Vue {
   }
 
   editImageScene() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             _id
           }
@@ -345,11 +356,13 @@ export default class Lightbox extends Vue {
   }
 
   editImageActors() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             _id
           }
@@ -372,7 +385,10 @@ export default class Lightbox extends Vue {
   }
 
   openEditActorsDialog() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
+
     this.editActors = JSON.parse(JSON.stringify(this.currentImage.actors));
     this.editActorsDialog = true;
   }
@@ -399,11 +415,13 @@ export default class Lightbox extends Vue {
   }
 
   rate(rating: number) {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             rating
           }
@@ -425,11 +443,13 @@ export default class Lightbox extends Vue {
   }
 
   favorite() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             favorite
           }
@@ -455,11 +475,13 @@ export default class Lightbox extends Vue {
   }
 
   bookmark() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             bookmark
           }
@@ -485,12 +507,14 @@ export default class Lightbox extends Vue {
   }
 
   editLabels() {
-    if (!this.currentImage) return;
+    if (!this.currentImage) {
+      return;
+    }
 
     this.labelEditLoader = true;
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $opts: ImageUpdateOpts!) {
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
           updateImages(ids: $ids, opts: $opts) {
             labels {
               _id
@@ -523,58 +547,70 @@ export default class Lightbox extends Vue {
       });
   }
 
-  openLabelSelector() {
-    if (!this.currentImage) return;
+  async loadLabels() {
+    const res = await ApolloClient.query({
+      query: gql`
+        {
+          getLabels {
+            _id
+            name
+            aliases
+            color
+          }
+        }
+      `,
+    });
+
+    this.allLabels = res.data.getLabels;
+  }
+
+  async openLabelSelector() {
+    if (!this.currentImage) {
+      return;
+    }
 
     if (!this.allLabels.length) {
-      ApolloClient.query({
-        query: gql`
-          {
-            getLabels {
-              _id
-              name
-              aliases
-              color
-            }
-          }
-        `,
-      })
-        .then((res) => {
-          if (!this.currentImage) return;
+      try {
+        await this.loadLabels();
 
-          this.allLabels = res.data.getLabels;
-          this.selectedLabels = this.currentImage.labels.map((l) =>
-            this.allLabels.findIndex((k) => k._id == l._id)
-          );
-          this.labelSelectorDialog = true;
-        })
-        .catch((err) => {
-          console.error(err);
-        });
+        if (!this.currentImage) {
+          return;
+        }
+
+        this.selectedLabels = this.currentImage.labels.map((l) =>
+          this.allLabels.findIndex((k) => k._id == l._id)
+        );
+        this.labelSelectorDialog = true;
+      } catch (error) {
+        console.error(error);
+      }
     } else {
       this.labelSelectorDialog = true;
     }
   }
 
   imageLink(image: any) {
-    return `${serverBase}/media/image/${image._id}?password=${localStorage.getItem("password")}`;
+    return `/api/media/image/${image._id}?password=${localStorage.getItem("password")}`;
   }
 
   get currentImage() {
-    if (this.index !== null) return this.items[this.index];
+    if (this.index !== null) {
+      return this.items[this.index];
+    }
     return null;
   }
 
   avatar(actor: any) {
-    if (actor.avatar)
-      return `${serverBase}/media/image/${actor.avatar._id}?password=${localStorage.getItem(
-        "password"
-      )}`;
+    if (actor.avatar) {
+      return `/api/media/image/${actor.avatar._id}?password=${localStorage.getItem("password")}`;
+    }
     return "";
   }
 
   avatarColor(actor: any) {
-    if (actor.avatar) return actor.avatar.color || "#ffffff";
+    if (actor.avatar) {
+      return actor.avatar.color || "#ffffff";
+    }
     return "#ffffff";
   }
 }

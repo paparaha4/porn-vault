@@ -2,21 +2,23 @@ import { expect } from "chai";
 import { existsSync, unlinkSync } from "fs";
 import { before } from "mocha";
 
-import { actorCollection, labelCollection, sceneCollection } from "../../../src/database";
+import { collections } from "../../../src/database";
 import actorMutations from "../../../src/graphql/mutations/actor";
 import { indexActors } from "../../../src/search/actor";
 import { indexScenes } from "../../../src/search/scene";
 import Actor from "../../../src/types/actor";
 import Label from "../../../src/types/label";
 import Scene from "../../../src/types/scene";
-import { downloadTestVideo } from "../../fixtures/files/dynamicTestFiles";
+import { downloadFile } from "../../../src/utils/download";
+import { TEST_VIDEOS } from "../../fixtures/files/dynamicTestFiles";
 import { startTestServer, stopTestServer } from "../../testServer";
 import { ApplyActorLabelsEnum } from "./../../../src/config/schema";
 
 describe("graphql", () => {
   describe("mutations", () => {
     describe("actor", () => {
-      const videoPathWithActor = "./test/fixtures/files/dynamic/dynamic_video001_abc_actor_updated.mp4";
+      const videoPathWithActor =
+        "./test/fixtures/files/dynamic/dynamic_video001_abc_actor_updated.mp4";
       const videoPathWithoutActor = "./test/fixtures/files/dynamic/dynamic_video001.mp4";
 
       async function seedDb() {
@@ -26,15 +28,15 @@ describe("graphql", () => {
         sceneWithoutActorInPath.path = videoPathWithoutActor;
 
         expect(await Scene.getAll()).to.be.empty;
-        await sceneCollection.upsert(sceneWithActorInPath._id, sceneWithActorInPath);
-        await sceneCollection.upsert(sceneWithoutActorInPath._id, sceneWithoutActorInPath);
+        await collections.scenes.upsert(sceneWithActorInPath._id, sceneWithActorInPath);
+        await collections.scenes.upsert(sceneWithoutActorInPath._id, sceneWithoutActorInPath);
 
         await indexScenes([sceneWithActorInPath, sceneWithoutActorInPath]);
         expect(await Scene.getAll()).to.have.lengthOf(2);
 
         const seedLabel = new Label("def label");
         expect(await Label.getAll()).to.be.empty;
-        await labelCollection.upsert(seedLabel._id, seedLabel);
+        await collections.labels.upsert(seedLabel._id, seedLabel);
         expect(await Label.getAll()).to.have.lengthOf(1);
 
         return {
@@ -48,7 +50,7 @@ describe("graphql", () => {
         const { sceneWithActorInPath, sceneWithoutActorInPath, seedLabel } = await seedDb();
 
         const seedActor = new Actor("abc actor");
-        await actorCollection.upsert(seedActor._id, seedActor);
+        await collections.actors.upsert(seedActor._id, seedActor);
         await indexActors([seedActor]);
 
         await Actor.setLabels(seedActor, [seedLabel._id]);
@@ -56,7 +58,7 @@ describe("graphql", () => {
         expect(actorLabels).to.have.lengthOf(1);
 
         const updateLabel = new Label("ghi label");
-        await labelCollection.upsert(updateLabel._id, updateLabel);
+        await collections.labels.upsert(updateLabel._id, updateLabel);
         expect(await Label.getAll()).to.have.lengthOf(2);
 
         // Actor labels are not attached to scenes, since we manually set the labels
@@ -75,8 +77,8 @@ describe("graphql", () => {
       }
 
       before(async () => {
-        await downloadTestVideo(videoPathWithActor);
-        await downloadTestVideo(videoPathWithoutActor);
+        await downloadFile(TEST_VIDEOS.MP4.url, videoPathWithActor);
+        await downloadFile(TEST_VIDEOS.MP4.url, videoPathWithoutActor);
       });
 
       after(() => {

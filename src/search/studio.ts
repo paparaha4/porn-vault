@@ -27,6 +27,8 @@ export interface IStudioSearchDoc {
   averageRating: number;
   numScenes: number;
   custom: Record<string, boolean | string | number | string[] | null>;
+
+  rawQuery?: unknown;
 }
 
 export async function createStudioSearchDoc(studio: Studio): Promise<IStudioSearchDoc> {
@@ -57,6 +59,7 @@ export async function removeStudio(studioId: string): Promise<void> {
     index: indexMap.studios,
     id: studioId,
     type: "_doc",
+    refresh: "wait_for",
   });
 }
 
@@ -87,6 +90,8 @@ export interface IStudioSearchQuery {
   skip?: number;
   take?: number;
   page?: number;
+
+  rawQuery?: unknown;
 }
 
 export async function searchStudios(
@@ -100,7 +105,7 @@ export async function searchStudios(
   return performSearch<IStudioSearchDoc, typeof options>({
     index: indexMap.studios,
     options,
-    query: {
+    query: options.rawQuery || {
       bool: {
         ...shuffleSwitch(query, _shuffle),
         filter: [

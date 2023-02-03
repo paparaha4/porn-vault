@@ -7,6 +7,7 @@ import { mapAsync } from "../utils/async";
 import {
   arrayFilter,
   bookmark,
+  emptyField,
   excludeFilter,
   favorite,
   getActorNames,
@@ -48,6 +49,7 @@ export async function removeImage(imageId: string): Promise<void> {
     index: indexMap.images,
     id: imageId,
     type: "_doc",
+    refresh: "wait_for",
   });
 }
 
@@ -109,7 +111,7 @@ export async function indexImages(images: Image[], progressCb?: ProgressCallback
     await addImageSearchDocs(docs);
     indexedImageCount += slice.length;
     if (progressCb) {
-      progressCb({ percent: (indexedImageCount / images.length) * 100 });
+      progressCb({ indexedCount: indexedImageCount, totalToIndexCount: images.length });
     }
   });
 
@@ -170,6 +172,9 @@ export interface IImageSearchQuery {
   skip?: number;
   take?: number;
   page?: number;
+  emptyField?: string;
+
+  rawQuery?: unknown;
 }
 
 export async function searchImages(
@@ -189,7 +194,7 @@ export async function searchImages(
   return performSearch<IImageSearchDoc, typeof options>({
     index: indexMap.images,
     options,
-    query: {
+    query: options.rawQuery || {
       bool: {
         ...shuffleSwitch(query, _shuffle),
         filter: [
@@ -205,6 +210,9 @@ export async function searchImages(
           ...arrayFilter(options.scenes, "scene", "OR"),
 
           ...extraFilter,
+        ],
+        must_not: [
+          ...emptyField(options.emptyField),
         ],
       },
     },
