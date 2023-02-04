@@ -2,7 +2,7 @@ import Jimp from "jimp";
 import { basename } from "path";
 
 import { getConfig } from "../config";
-import { imageCollection } from "../database";
+import { collections } from "../database";
 import { extractActors, extractLabels, extractScenes } from "../extractor";
 import { indexImages } from "../search/image";
 import Image from "../types/image";
@@ -11,6 +11,22 @@ import { walk } from "../utils/fs/async";
 import { handleError, logger } from "../utils/logger";
 import { libraryPath } from "../utils/path";
 import ora = require("ora");
+
+const VIDEO_EXTENSIONS = [
+  ".m4v",
+  ".mp4",
+  ".mov",
+  ".wmv",
+  ".avi",
+  ".mpg",
+  ".mpeg",
+  ".rmvb",
+  ".rm",
+  ".flv",
+  ".asf",
+  ".mkv",
+  ".webm",
+];
 
 export async function checkVideoFolders(): Promise<void> {
   const config = getConfig();
@@ -31,7 +47,7 @@ export async function checkVideoFolders(): Promise<void> {
     await walk({
       dir: folder,
       exclude: config.scan.excludeFiles,
-      extensions: [".mp4", ".webm"],
+      extensions: VIDEO_EXTENSIONS,
       cb: async (path) => {
         loader.text = `Scanned ${++numFiles} videos`;
         if (basename(path).startsWith(".")) {
@@ -110,7 +126,7 @@ async function processImage(imagePath: string, readImage = true, generateThumb =
       await jimpImage.writeAsync(image.thumbPath);
     }
 
-    await imageCollection.upsert(image._id, image);
+    await collections.images.upsert(image._id, image);
     await indexImages([image]);
   } catch (error) {
     logger.error(error);

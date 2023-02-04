@@ -12,7 +12,7 @@
           />
           <div style="position: absolute; right: 2px; top: 2px">
             <v-icon v-if="actor.favorite" color="red">mdi-heart</v-icon>
-            <v-icon v-if="actor.bookmark" color="white">mdi-bookmark-check</v-icon>
+            <v-icon v-if="actor.bookmark !== null" color="white">mdi-bookmark-check</v-icon>
           </div>
           <div class="white--text py-1 bottom-bar text-center">
             <div class="subtitle-2 font-weight-bold">{{ actor.name }}</div>
@@ -30,7 +30,6 @@
 <script lang="ts">
 import { Component, Vue, Prop } from "vue-property-decorator";
 import IActor from "../types/actor";
-import { serverBase } from "../apollo";
 import moment from "moment";
 
 @Component
@@ -51,10 +50,10 @@ export default class ActorGrid extends Vue {
 
   thumbnail(actor: IActor) {
     if (actor.thumbnail)
-      return `${serverBase}/media/image/${
-        actor.thumbnail._id
-      }/thumbnail?password=${localStorage.getItem("password")}`;
-    return `${serverBase}/assets/broken.png`;
+      return `/api/media/image/${actor.thumbnail._id}/thumbnail?password=${localStorage.getItem(
+        "password"
+      )}`;
+    return "/assets/broken.png";
   }
 }
 </script>

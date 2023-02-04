@@ -3,26 +3,49 @@
     <BindFavicon />
     <BindTitle value="Images" />
     <v-banner app sticky class="mb-2">
-      {{ selectedImages.length }} images selected
-      <template v-slot:actions>
-        <v-btn v-if="selectedImages.length" text @click="selectedImages = []" class="text-none"
-          >Deselect</v-btn
-        >
+      <div class="d-flex align-center">
         <v-btn
-          v-else-if="!selectedImages.length"
-          text
+          v-if="!selectedImages.length"
+          icon
           @click="selectedImages = images.map((im) => im._id)"
-          class="text-none"
-          >Select all</v-btn
         >
+          <v-icon>mdi-checkbox-blank-circle-outline</v-icon>
+        </v-btn>
+
+        <v-btn v-else icon @click="selectedImages = []">
+          <v-icon>mdi-checkbox-marked-circle</v-icon>
+        </v-btn>
+
+        <div class="title ml-2">
+          {{ selectedImages.length }}
+        </div>
+      </div>
+
+      <template v-slot:actions>
+        <v-btn @click="addLabelsDialog = true" icon v-if="selectedImages.length">
+          <v-icon>mdi-label</v-icon>
+        </v-btn>
+
+        <v-btn @click="subtractLabelsDialog = true" icon v-if="selectedImages.length">
+          <v-icon>mdi-label-off</v-icon>
+        </v-btn>
+
+        <v-btn @click="addActorsDialog = true" icon v-if="selectedImages.length">
+          <v-tooltip bottom>
+            <template v-slot:activator="{ on, attrs }">
+              <v-icon v-bind="attrs" v-on="on">mdi-account-plus</v-icon>
+            </template>
+            <span>Add {{ (actorPlural || "").toLowerCase() }} to selected images</span>
+          </v-tooltip>
+        </v-btn>
+
         <v-btn
           v-if="selectedImages.length"
           @click="deleteSelectedImagesDialog = true"
-          text
-          class="text-none"
+          icon
           color="error"
-          >Delete</v-btn
-        >
+          ><v-icon>mdi-delete-forever</v-icon>
+        </v-btn>
       </template>
     </v-banner>
 
@@ -88,13 +111,21 @@
           :items="allLabels"
         />
 
-        <Divider icon="mdi-account">Actors</Divider>
+        <Divider icon="mdi-account">{{ actorPlural }}</Divider>
 
         <ActorSelector
           :value="searchState.selectedActors"
           @input="searchStateManager.onValueChanged('selectedActors', $event)"
           :multiple="true"
+          :disabled="searchState.showEmptyField === 'actors'"
         />
+
+        <v-checkbox
+          v-model="searchState.showEmptyField"
+          value="actors"
+          @change="searchStateManager.onValueChanged('showEmptyField', $event)"
+          :label="`Filter by images with no tagged ${(actorPlural || '').toLowerCase()}`"
+        ></v-checkbox>
 
         <Divider icon="mdi-sort">Sort</Divider>
 
@@ -116,7 +147,7 @@
           solo
           flat
           single-line
-          :disabled="searchState.sortBy == 'relevance' || searchState.sortBy == '$shuffle'"
+          :disabled="searchState.sortBy === 'relevance' || searchState.sortBy === '$shuffle'"
           hide-details
           color="primary"
           item-text="text"
@@ -253,6 +284,102 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog :persistent="addLoader" scrollable v-model="addLabelsDialog" max-width="400px">
+      <v-card :loading="addLoader">
+        <v-card-title
+          >Add {{ addLabelsIndices.length }}
+          {{ addLabelsIndices.length === 1 ? "label" : "labels" }}</v-card-title
+        >
+
+        <v-text-field
+          clearable
+          color="primary"
+          hide-details
+          class="px-5 mb-2"
+          label="Find labels..."
+          v-model="addLabelsSearchQuery"
+        />
+
+        <v-card-text style="max-height: 400px">
+          <LabelSelector
+            :searchQuery="addLabelsSearchQuery"
+            :items="allLabels"
+            v-model="addLabelsIndices"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn @click="addLabelsIndices = []" text class="text-none">Clear</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn :loading="addLoader" class="text-none" color="primary" text @click="addLabels"
+            >Commit</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog
+      :persistent="subtractLoader"
+      scrollable
+      v-model="subtractLabelsDialog"
+      max-width="400px"
+    >
+      <v-card :loading="subtractLoader">
+        <v-card-title
+          >Subtract {{ subtractLabelsIndices.length }}
+          {{ subtractLabelsIndices.length === 1 ? "label" : "labels" }}</v-card-title
+        >
+
+        <v-text-field
+          clearable
+          color="primary"
+          hide-details
+          class="px-5 mb-2"
+          label="Find labels..."
+          v-model="subtractLabelsSearchQuery"
+        />
+
+        <v-card-text style="max-height: 400px">
+          <LabelSelector
+            :searchQuery="subtractLabelsSearchQuery"
+            :items="allLabels"
+            v-model="subtractLabelsIndices"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn @click="subtractLabelsIndices = []" text class="text-none">Clear</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn
+            :loading="subtractLoader"
+            class="text-none"
+            color="primary"
+            text
+            @click="subtractLabels"
+            >Commit</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog :persistent="addLoader" scrollable v-model="addActorsDialog" max-width="400px">
+      <v-card :loading="addLoader">
+        <v-card-title>Add {{ addActorsIndices.length }} {{ (actorPlural || "").toLowerCase() }} to selected images</v-card-title>
+        <v-card-text style="max-height: 400px">
+          <ActorSelector v-model="addActors" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn
+            :loading="addLoader"
+            class="text-none"
+            color="primary"
+            text
+            @click="addActorsToImages"
+            >Add</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <transition name="fade">
       <Lightbox
         @update="updateImage"
@@ -296,6 +423,10 @@ import { Dictionary } from "vue-router/types/router";
   },
 })
 export default class ImageList extends mixins(DrawerMixin) {
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
   addNewItem(image: IImage) {
     this.images.unshift(image);
   }
@@ -329,6 +460,7 @@ export default class ImageList extends mixins(DrawerMixin) {
     selectedActors: IActor[];
     sortBy: string;
     sortDir: string;
+    showEmptyField: string;
   }>({
     localStorageNamer: (key: string) => `pm_image${key[0].toUpperCase()}${key.substr(1)}`,
     props: {
@@ -336,8 +468,8 @@ export default class ImageList extends mixins(DrawerMixin) {
         default: () => 1,
       },
       query: true,
-      favoritesOnly: true,
-      bookmarksOnly: true,
+      favoritesOnly: { default: () => false },
+      bookmarksOnly: { default: () => false },
       ratingFilter: { default: () => 0 },
       selectedActors: {
         default: () => [],
@@ -356,6 +488,7 @@ export default class ImageList extends mixins(DrawerMixin) {
       sortDir: {
         default: () => "desc",
       },
+      showEmptyField: {default: () => ""},
     },
   });
 
@@ -394,7 +527,10 @@ export default class ImageList extends mixins(DrawerMixin) {
     }
     this.jumpPage = null;
     this.searchStateManager.onValueChanged("page", page);
-    this.updateRoute({ page: page.toString() });
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   updateRoute(query: { [x: string]: string }, replace = false, noChangeCb: Function | null = null) {
@@ -402,10 +538,7 @@ export default class ImageList extends mixins(DrawerMixin) {
       // Only change the current url if the new url will be different to avoid redundant navigation
       const update = {
         name: "images",
-        query: {
-          ...this.$route.query,
-          ...query,
-        },
+        query, // Always override the current query
       };
       if (replace) {
         this.$router.replace(update);
@@ -456,6 +589,151 @@ export default class ImageList extends mixins(DrawerMixin) {
   selectedImages = [] as string[];
   lastSelectionImageId: string | null = null;
   deleteSelectedImagesDialog = false;
+
+  addLabelsDialog = false;
+  addLabelsIndices: number[] = [];
+  addLabelsSearchQuery = "";
+  addLoader = false;
+  addActorsDialog = false;
+  addActorsIndices: number[] = [];
+  addActors = [] as IActor[];
+
+  subtractLabelsDialog = false;
+  subtractLabelsIndices: number[] = [];
+  subtractLabelsSearchQuery = "";
+  subtractLoader = false;
+
+  get labelsToAdd(): ILabel[] {
+    return this.addLabelsIndices.map((i) => this.allLabels[i]).filter(Boolean);
+  }
+
+  get labelsToSubtract(): ILabel[] {
+    return this.subtractLabelsIndices.map((i) => this.allLabels[i]).filter(Boolean);
+  }
+
+  async addLabelsToImage(imageId: string, labelIds: string[]): Promise<void> {
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($item: String!, $labels: [String!]!) {
+          attachLabels(item: $item, labels: $labels)
+        }
+      `,
+      variables: {
+        item: imageId,
+        labels: labelIds,
+      },
+    });
+  }
+
+  async addActorsToImage(image: IImage): Promise<void> {
+    // get array of existing actor ids of the current image
+    const existingActorIds = image.actors.map((a) => a._id);
+    const newActorIds = this.addActors.map((a) => a._id).concat(existingActorIds);
+
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($ids: [String!]!, $opts: ImageUpdateOpts!) {
+          updateImages(ids: $ids, opts: $opts) {
+            _id
+          }
+        }
+      `,
+      variables: {
+        ids: [image._id],
+        opts: {
+          actors: newActorIds,
+        },
+      },
+    });
+  }
+
+  async removeLabelFromImage(imageId: string, labelId: string): Promise<void> {
+    await ApolloClient.mutate({
+      mutation: gql`
+        mutation ($item: String!, $label: String!) {
+          removeLabel(item: $item, label: $label)
+        }
+      `,
+      variables: {
+        item: imageId,
+        label: labelId,
+      },
+    });
+  }
+
+  async subtractLabels(): Promise<void> {
+    try {
+      const labelIdsToSubtract = this.labelsToSubtract.map((l) => l._id);
+      this.subtractLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+
+        const image = this.images.find((img) => img._id === id);
+
+        if (image) {
+          for (const labelId of labelIdsToSubtract) {
+            await this.removeLabelFromImage(id, labelId);
+          }
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.subtractLabelsDialog = false;
+    } catch (error) {
+      console.error(error);
+    }
+    this.subtractLoader = false;
+  }
+
+  async addLabels(): Promise<void> {
+    try {
+      const labelIdsToAdd = this.labelsToAdd.map((l) => l._id);
+      this.addLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+
+        const image = this.images.find((img) => img._id === id);
+
+        if (image) {
+          await this.addLabelsToImage(id, labelIdsToAdd);
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.addLabelsDialog = false;
+    } catch (error) {
+      console.error(error);
+    }
+    this.addLoader = false;
+  }
+
+  async addActorsToImages(): Promise<void> {
+    try {
+      this.addLoader = true;
+
+      for (let i = 0; i < this.selectedImages.length; i++) {
+        const id = this.selectedImages[i];
+        const image = this.images.find((img) => img._id == id);
+
+        if (image) {
+          await this.addActorsToImage(image);
+        }
+      }
+
+      // Refresh page
+      await this.loadPage();
+      this.addLoader = false;
+    } catch (error) {
+      console.error(error);
+    }
+
+    this.addLoader = false;
+    this.addActorsDialog = false;
+  }
 
   isImageSelected(id: string) {
     return !!this.selectedImages.find((selectedId) => id === selectedId);
@@ -510,7 +788,7 @@ export default class ImageList extends mixins(DrawerMixin) {
   deleteSelection() {
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!) {
+        mutation ($ids: [String!]!) {
           removeImages(ids: $ids)
         }
       `,
@@ -534,7 +812,7 @@ export default class ImageList extends mixins(DrawerMixin) {
   removeImage(index: number) {
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!) {
+        mutation ($ids: [String!]!) {
           removeImages(ids: $ids)
         }
       `,
@@ -563,14 +841,17 @@ export default class ImageList extends mixins(DrawerMixin) {
   }
 
   resetPagination() {
-    this.searchState.page = 1;
-    this.updateRoute(this.searchStateManager.toQuery());
+    this.searchStateManager.onValueChanged("page", 1);
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   async fetchPage(page: number, take = 24, random?: boolean, seed?: string) {
     const result = await ApolloClient.query({
       query: gql`
-        query($query: ImageSearchQuery!, $seed: String) {
+        query ($query: ImageSearchQuery!, $seed: String) {
           getImages(query: $query, seed: $seed) {
             numItems
             numPages
@@ -580,6 +861,7 @@ export default class ImageList extends mixins(DrawerMixin) {
                 _id
                 name
                 color
+                aliases
               }
               studio {
                 _id
@@ -618,6 +900,7 @@ export default class ImageList extends mixins(DrawerMixin) {
           bookmark: this.searchState.bookmarksOnly,
           rating: this.searchState.ratingFilter,
           actors: this.selectedActorIds,
+          emptyField: this.searchState.showEmptyField,
         },
         seed: seed || localStorage.getItem("pm_seed") || "default",
       },
@@ -633,6 +916,10 @@ export default class ImageList extends mixins(DrawerMixin) {
   loadPage() {
     this.fetchLoader = true;
     this.selectedImages = [];
+
+    if (this.searchState.showEmptyField === 'actors') {
+      this.searchState.selectedActors = [];
+    }
 
     return this.fetchPage(this.searchState.page)
       .then((result) => {
@@ -654,7 +941,11 @@ export default class ImageList extends mixins(DrawerMixin) {
 
   beforeMount() {
     this.searchStateManager.initState(this.$route.query as Dictionary<string>);
-    this.updateRoute(this.searchStateManager.toQuery(), true, this.loadPage);
+    this.updateRoute(this.searchStateManager.toQuery(), true, () => {
+      // If the query wasn't different, there will be no route change
+      // => manually trigger loadPage
+      this.loadPage();
+    });
 
     ApolloClient.query({
       query: gql`
@@ -663,6 +954,7 @@ export default class ImageList extends mixins(DrawerMixin) {
             _id
             name
             color
+            aliases
           }
         }
       `,

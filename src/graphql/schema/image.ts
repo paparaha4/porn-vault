@@ -60,6 +60,9 @@ export default gql`
     skip: Int
     take: Int
     page: Int
+    emptyField: String
+
+    rawQuery: Json
   }
 
   extend type Query {

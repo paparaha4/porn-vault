@@ -12,6 +12,8 @@ import { modules } from "./context";
 import { getPlugin, requireUncached } from "./register";
 import { createPluginStoreAccess } from "./store";
 
+export const PLUGIN_EXTENSIONS = [".js", ".ts"];
+
 export function resolvePlugin(
   item: string | [string, Record<string, unknown>]
 ): [string, Record<string, unknown> | undefined] {
@@ -81,43 +83,46 @@ export async function runPlugin(
   const pluginArgs = JSON.parse(JSON.stringify(args || pluginDefinition.args || {}));
   const pluginLogger = createPluginLogger(pluginName, config.log.writeFile);
 
-  logger.verbose(`Running plugin ${pluginName}:`);
+  const pluginVersion = func.info?.version ? `v${func.info?.version}` : "unknown version";
+  logger.info(`Running plugin ${pluginName} ${pluginVersion}`);
   logger.debug(formatMessage(pluginDefinition));
 
-  const result = (await func({
-    // Persistent in-memory data store
-    $store: createPluginStoreAccess(pluginName),
-    $formatMessage: formatMessage,
-    $walk: walk,
-    $getMatcher: getMatcherByType,
-    $matcher: getMatcher(),
-    $version: VERSION,
+  const result = await func({
+    // MAIN CONTEXT
     $config: JSON.parse(JSON.stringify(config)) as IConfig,
-    $pluginName: pluginName,
-    $pluginPath: nodepath.resolve(pluginDefinition.path),
     $cwd: process.cwd(),
+    $formatMessage: formatMessage,
+    $getMatcher: getMatcherByType,
     $library: libraryPath(""),
+    $log: (...msgs: unknown[]) => {
+      logger.warn(`$log is deprecated, use $logger instead`);
+      pluginLogger.info(msgs.map(formatMessage).join(" "));
+    },
+    $logger: pluginLogger,
+    $matcher: getMatcher(),
     $require: (partial: string) => {
       if (typeof partial !== "string") {
         throw new TypeError("$require: String required");
       }
       return requireUncached(nodepath.resolve(pluginDefinition.path, partial));
     },
-    $logger: pluginLogger,
-    $log: (...msgs: unknown[]) => {
-      logger.warn(`$log is deprecated, use $logger instead`);
-      pluginLogger.info(msgs.map(formatMessage).join(" "));
-    },
+    // Persistent in-memory data store
+    $store: createPluginStoreAccess(pluginName),
     $throw: (...msgs: unknown[]) => {
       const msg = msgs.map(formatMessage).join(" ");
       pluginLogger.error(msg);
       throw new Error(msg);
     },
+    $version: VERSION,
+    $walk: walk,
+    // PLUGIN
     args: pluginArgs,
     $args: pluginArgs,
+    $pluginName: pluginName,
+    $pluginPath: nodepath.resolve(pluginDefinition.path),
     ...inject,
     ...modules,
-  })) as unknown;
+  });
 
   if (typeof result !== "object") {
     throw new Error(`${pluginName}: malformed output.`);

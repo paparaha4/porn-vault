@@ -64,7 +64,7 @@
           :items="allLabels"
         />
 
-        <Divider icon="mdi-account">Actors</Divider>
+        <Divider icon="mdi-account">{{ actorPlural }}</Divider>
 
         <ActorSelector
           :value="searchState.selectedActors"
@@ -309,6 +309,10 @@ import { Dictionary } from "vue-router/types/router";
   },
 })
 export default class MovieList extends mixins(DrawerMixin) {
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
   get showSidenav() {
     return contextModule.showSidenav;
   }
@@ -346,8 +350,8 @@ export default class MovieList extends mixins(DrawerMixin) {
         default: () => 1,
       },
       query: true,
-      favoritesOnly: true,
-      bookmarksOnly: true,
+      favoritesOnly: { default: () => false },
+      bookmarksOnly: { default: () => false },
       ratingFilter: { default: () => 0 },
       selectedActors: {
         default: () => [],
@@ -439,7 +443,10 @@ export default class MovieList extends mixins(DrawerMixin) {
     }
     this.jumpPage = null;
     this.searchStateManager.onValueChanged("page", page);
-    this.updateRoute({ page: page.toString() });
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   updateRoute(query: { [x: string]: string }, replace = false, noChangeCb: Function | null = null) {
@@ -447,10 +454,7 @@ export default class MovieList extends mixins(DrawerMixin) {
       // Only change the current url if the new url will be different to avoid redundant navigation
       const update = {
         name: "movies",
-        query: {
-          ...this.$route.query,
-          ...query,
-        },
+        query, // Always override the current query
       };
       if (replace) {
         this.$router.replace(update);
@@ -495,6 +499,10 @@ export default class MovieList extends mixins(DrawerMixin) {
       value: "duration",
     },
     {
+      text: "Release date",
+      value: "releaseDate",
+    },
+    {
       text: "Bookmarked",
       value: "bookmark",
     },
@@ -503,7 +511,7 @@ export default class MovieList extends mixins(DrawerMixin) {
       value: "numScenes",
     },
     {
-      text: "# actors",
+      text: `# ${this.actorPlural?.toLowerCase() ?? ""}`,
       value: "numActors",
     },
     {
@@ -520,7 +528,7 @@ export default class MovieList extends mixins(DrawerMixin) {
     return new Promise((resolve, reject) => {
       ApolloClient.mutate({
         mutation: gql`
-          mutation($name: String!) {
+          mutation ($name: String!) {
             addMovie(name: $name) {
               ...MovieFragment
               actors {
@@ -551,7 +559,7 @@ export default class MovieList extends mixins(DrawerMixin) {
     this.addMovieLoader = true;
     ApolloClient.mutate({
       mutation: gql`
-        mutation($name: String!, $scenes: [String!]) {
+        mutation ($name: String!, $scenes: [String!]) {
           addMovie(name: $name, scenes: $scenes) {
             ...MovieFragment
             actors {
@@ -591,8 +599,11 @@ export default class MovieList extends mixins(DrawerMixin) {
   }
 
   resetPagination() {
-    this.searchState.page = 1;
-    this.updateRoute(this.searchStateManager.toQuery());
+    this.searchStateManager.onValueChanged("page", 1);
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   getRandom() {
@@ -610,7 +621,7 @@ export default class MovieList extends mixins(DrawerMixin) {
   async fetchPage(page: number, take = 24, random?: boolean, seed?: string) {
     const result = await ApolloClient.query({
       query: gql`
-        query($query: MovieSearchQuery!, $seed: String) {
+        query ($query: MovieSearchQuery!, $seed: String) {
           getMovies(query: $query, seed: $seed) {
             items {
               ...MovieFragment
@@ -673,7 +684,11 @@ export default class MovieList extends mixins(DrawerMixin) {
 
   beforeMount() {
     this.searchStateManager.initState(this.$route.query as Dictionary<string>);
-    this.updateRoute(this.searchStateManager.toQuery(), true, this.loadPage);
+    this.updateRoute(this.searchStateManager.toQuery(), true, () => {
+      // If the query wasn't different, there will be no route change
+      // => manually trigger loadPage
+      this.loadPage();
+    });
 
     ApolloClient.query({
       query: gql`

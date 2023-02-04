@@ -13,6 +13,33 @@ const pluginSchema = zod.object({
 
 const pluginCallWithArgument = zod.tuple([zod.string(), pluginArguments]);
 
+const pluginsSchema = zod.object({
+  register: zod.record(pluginSchema),
+  // Map event name to plugin sequence
+  events: zod.record(
+    zod.array(
+      zod.union([
+        // Plugin name only
+        zod.string(),
+        // Plugin name + arguments [name, { args }]
+        pluginCallWithArgument,
+      ])
+    )
+  ),
+
+  allowSceneThumbnailOverwrite: zod.boolean(),
+  allowActorThumbnailOverwrite: zod.boolean(),
+  allowMovieThumbnailOverwrite: zod.boolean(),
+  allowStudioThumbnailOverwrite: zod.boolean(),
+
+  createMissingActors: zod.boolean(),
+  createMissingStudios: zod.boolean(),
+  createMissingLabels: zod.boolean(),
+  createMissingMovies: zod.boolean(),
+
+  markerDeduplicationThreshold: zod.number(),
+});
+
 export const ApplyActorLabelsEnum = zod.enum([
   "event:actor:create",
   "event:actor:update",
@@ -25,6 +52,8 @@ export const ApplyActorLabelsEnum = zod.enum([
   "plugin:scene:custom",
   "event:image:create",
   "event:image:update",
+  "plugin:marker:create",
+  "event:marker:create",
 ]);
 
 export const ApplyStudioLabelsEnum = zod.enum([
@@ -40,6 +69,29 @@ export const ApplyStudioLabelsEnum = zod.enum([
 ]);
 
 const logLevelType = zod.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"]);
+
+export const HardwareAccelerationDriver = zod.enum([
+  "qsv",
+  "vaapi",
+  "nvenc",
+  "cuda",
+  "amf",
+  "videotoolbox",
+]);
+
+export const H264Preset = zod.enum([
+  "ultrafast",
+  "superfast",
+  "veryfast",
+  "faster",
+  "fast",
+  "medium",
+  "slow",
+  "slower",
+  "veryslow",
+]);
+
+export const WebmDeadline = zod.enum(["good", "best", "realtime"]);
 
 const configSchema = zod
   .object({
@@ -103,32 +155,7 @@ const configSchema = zod
       matchCreatedStudios: zod.boolean(),
       matchCreatedLabels: zod.boolean(),
     }),
-    plugins: zod.object({
-      register: zod.record(pluginSchema),
-      // Map event name to plugin sequence
-      events: zod.record(
-        zod.array(
-          zod.union([
-            // Plugin name only
-            zod.string(),
-            // Plugin name + arguments [name, { args }]
-            pluginCallWithArgument,
-          ])
-        )
-      ),
-
-      allowSceneThumbnailOverwrite: zod.boolean(),
-      allowActorThumbnailOverwrite: zod.boolean(),
-      allowMovieThumbnailOverwrite: zod.boolean(),
-      allowStudioThumbnailOverwrite: zod.boolean(),
-
-      createMissingActors: zod.boolean(),
-      createMissingStudios: zod.boolean(),
-      createMissingLabels: zod.boolean(),
-      createMissingMovies: zod.boolean(),
-
-      markerDeduplicationThreshold: zod.number(),
-    }),
+    plugins: pluginsSchema,
     log: zod.object({
       level: logLevelType,
       maxSize: zod.union([zod.number().min(0), zod.string()]),
@@ -140,6 +167,19 @@ const configSchema = zod
           silent: zod.boolean(),
         })
       ),
+    }),
+    transcode: zod.object({
+      hwaDriver: HardwareAccelerationDriver.nullable(),
+      vaapiDevice: zod.string().nullable(),
+      h264: zod.object({
+        preset: H264Preset,
+        crf: zod.number().min(0).max(51),
+      }),
+      webm: zod.object({
+        deadline: WebmDeadline,
+        cpuUsed: zod.number(),
+        crf: zod.number().min(0).max(63),
+      }),
     }),
   })
   .nonstrict();
@@ -180,4 +220,13 @@ export function isValidConfig(val: unknown): true | { location: string; error: E
   }
 
   return generalError ? { location: "root", error: generalError } : true;
+}
+
+export function isValidPluginsConfig(val: unknown): true | Error {
+  try {
+    pluginsSchema.parse(val);
+    return true;
+  } catch (err) {
+    return err as Error;
+  }
 }

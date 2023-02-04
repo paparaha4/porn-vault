@@ -75,7 +75,7 @@
           :items="allLabels"
         />
 
-        <Divider icon="mdi-account">Actors</Divider>
+        <Divider icon="mdi-account">{{ actorPlural }}</Divider>
 
         <ActorSelector
           :value="searchState.selectedActors"
@@ -359,7 +359,7 @@
 
 <script lang="ts">
 import { Component, Watch } from "vue-property-decorator";
-import ApolloClient, { serverBase } from "@/apollo";
+import ApolloClient from "@/apollo";
 import gql from "graphql-tag";
 import SceneCard from "@/components/Cards/Scene.vue";
 import sceneFragment from "@/fragments/scene";
@@ -430,8 +430,8 @@ export default class SceneList extends mixins(DrawerMixin) {
         default: () => 1,
       },
       query: true,
-      favoritesOnly: true,
-      bookmarksOnly: true,
+      favoritesOnly: { default: () => false },
+      bookmarksOnly: { default: () => false },
       ratingFilter: { default: () => 0 },
       selectedLabels: { default: () => ({ include: [], exclude: [] }) },
       selectedActors: {
@@ -449,7 +449,7 @@ export default class SceneList extends mixins(DrawerMixin) {
       selectedStudio: {
         serialize: (val: any) => (val ? JSON.stringify({ _id: val._id, name: val.name }) : ""),
       },
-      useDuration: true,
+      useDuration: { default: () => false },
       durationRange: {
         default: () => [0, this.durationMax],
       },
@@ -499,7 +499,10 @@ export default class SceneList extends mixins(DrawerMixin) {
     }
     this.jumpPage = null;
     this.searchStateManager.onValueChanged("page", page);
-    this.updateRoute({ page: page.toString() });
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   updateRoute(query: { [x: string]: string }, replace = false, noChangeCb: Function | null = null) {
@@ -507,10 +510,7 @@ export default class SceneList extends mixins(DrawerMixin) {
       // Only change the current url if the new url will be different to avoid redundant navigation
       const update = {
         name: "scenes",
-        query: {
-          ...this.$route.query,
-          ...query,
-        },
+        query, // Always override the current query
       };
       if (replace) {
         this.$router.replace(update);
@@ -563,7 +563,7 @@ export default class SceneList extends mixins(DrawerMixin) {
       value: "numViews",
     },
     {
-      text: "# actors",
+      text: `# ${this.actorPlural?.toLowerCase() ?? ""}`,
       value: "numActors",
     },
     {
@@ -611,6 +611,14 @@ export default class SceneList extends mixins(DrawerMixin) {
     return contextModule.showCardLabels;
   }
 
+  get actorSingular() {
+    return contextModule.actorSingular;
+  }
+
+  get actorPlural() {
+    return contextModule.actorPlural;
+  }
+
   selectScene(id) {
     const sceneIdx = this.selectedScenes.findIndex((sid) => sid === id);
     if (sceneIdx !== -1) {
@@ -630,7 +638,7 @@ export default class SceneList extends mixins(DrawerMixin) {
   deleteSelection() {
     ApolloClient.mutate({
       mutation: gql`
-        mutation($ids: [String!]!, $deleteImages: Boolean) {
+        mutation ($ids: [String!]!, $deleteImages: Boolean) {
           removeScenes(ids: $ids, deleteImages: $deleteImages)
         }
       `,
@@ -695,7 +703,7 @@ export default class SceneList extends mixins(DrawerMixin) {
     this.addSceneLoader = true;
     ApolloClient.mutate({
       mutation: gql`
-        mutation($name: String!, $labels: [String!], $actors: [String!]) {
+        mutation ($name: String!, $labels: [String!], $actors: [String!]) {
           addScene(name: $name, labels: $labels, actors: $actors) {
             ...SceneFragment
             actors {
@@ -743,15 +751,16 @@ export default class SceneList extends mixins(DrawerMixin) {
 
   sceneThumbnail(scene: any) {
     if (scene.thumbnail)
-      return `${serverBase}/media/image/${scene.thumbnail._id}?password=${localStorage.getItem(
-        "password"
-      )}`;
+      return `/api/media/image/${scene.thumbnail._id}?password=${localStorage.getItem("password")}`;
     return "";
   }
 
   resetPagination() {
-    this.searchState.page = 1;
-    this.updateRoute(this.searchStateManager.toQuery());
+    this.searchStateManager.onValueChanged("page", 1);
+    this.updateRoute(this.searchStateManager.toQuery(), false, () => {
+      // If the query wasn't different, just reset the flag
+      this.searchStateManager.refreshed = true;
+    });
   }
 
   getRandom() {
@@ -769,7 +778,7 @@ export default class SceneList extends mixins(DrawerMixin) {
   async fetchPage(page: number, take = 24, random?: boolean, seed?: string) {
     const result = await ApolloClient.query({
       query: gql`
-        query($query: SceneSearchQuery!, $seed: String) {
+        query ($query: SceneSearchQuery!, $seed: String) {
           getScenes(query: $query, seed: $seed) {
             items {
               ...SceneFragment
@@ -841,7 +850,11 @@ export default class SceneList extends mixins(DrawerMixin) {
 
   beforeMount() {
     this.searchStateManager.initState(this.$route.query as Dictionary<string>);
-    this.updateRoute(this.searchStateManager.toQuery(), true, this.loadPage);
+    this.updateRoute(this.searchStateManager.toQuery(), true, () => {
+      // If the query wasn't different, there will be no route change
+      // => manually trigger loadPage
+      this.loadPage();
+    });
 
     ApolloClient.query({
       query: gql`
